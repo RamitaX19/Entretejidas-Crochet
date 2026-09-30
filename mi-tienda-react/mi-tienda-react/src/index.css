@@ -78,7 +78,7 @@ button { font: inherit; cursor: pointer; }
 .boton {
   background: var(--denim); color: #fff;
   border: 2px solid var(--denim); border-radius: var(--radio);
-  padding: 0.5rem 1.25rem; min-height: 44px; font-weight: 600;
+  padding: 0.5rem 1.25rem; min-height: 50px; font-weight: 600;
   transition: background-color 0.15s;
 }
 .boton:hover { background: var(--denim-oscuro); border-color: var(--denim-oscuro); }
@@ -206,7 +206,17 @@ a.boton { display: inline-flex; align-items: center; justify-content: center; te
 .boton-cantidad:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .carrito-nav { position: relative; }
-.boton-carrito { position: relative; }
+.boton-carrito {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  padding: 0;
+  user-select: none;
+}
+.boton-carrito svg { display: block; }
 .carrito-contador {
   position: absolute; top: -8px; right: -8px;
   background: var(--cinta); color: var(--tinta);
