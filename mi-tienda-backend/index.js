@@ -5,6 +5,7 @@ const pool = require("./db");
 const jwt = require("jsonwebtoken");
 const { verificarToken, verificarAdmin } = require("./auth");
 const mercadoPago = require("./mercadopago");
+const correos = require("./correos");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -804,15 +805,27 @@ async function obtenerPedido(id) {
   return resultado.rows[0];
 }
 
+// Los correos salen después de responder: si fallan, el pedido sigue igual y queda anotado en el log.
+function avisarPorCorreo(pedidoId, aviso) {
+  if (!correos.configurado()) return;
+
+  obtenerPedido(pedidoId)
+    .then((pedido) => pedido && aviso(pedido))
+    .catch((error) => console.error(`No se pudo leer el pedido #${pedidoId} para el correo:`, error.message));
+}
+
 async function marcarPagado(pedidoId, pago) {
   if (pago.status !== "approved") return;
 
   // Solo se marca si el monto pagado cubre el total del pedido.
-  await pool.query(
+  const resultado = await pool.query(
     `UPDATE pedidos SET estado = 'pagado', mp_pago_id = $1
      WHERE id = $2 AND estado = 'pendiente' AND metodo_pago = 'mercadopago' AND total <= $3::numeric`,
     [String(pago.id), pedidoId, pago.transaction_amount],
   );
+
+  // Mercado Pago puede avisar el mismo pago varias veces: el correo sale solo la primera.
+  if (resultado.rowCount > 0) avisarPorCorreo(pedidoId, correos.cambioDeEstado);
 }
 
 function medioDisponible(metodo) {
@@ -1041,6 +1054,7 @@ app.post("/api/pedidos", verificarToken, async (req, res) => {
     await cliente.query("COMMIT");
 
     res.status(201).json({ id: pedidoId, total, estado: gratis ? "pagado" : "pendiente" });
+    avisarPorCorreo(pedidoId, (pedido) => correos.pedidoCreado(pedido, datosTransferencia()));
   } catch (error) {
     await cliente.query("ROLLBACK");
     console.error(error);
@@ -1092,7 +1106,9 @@ app.put("/api/pedidos/:id/estado", verificarToken, verificarAdmin, async (req, r
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
 
-    if (actual.rows[0].estado === "cancelado") {
+    const estadoAnterior = actual.rows[0].estado;
+
+    if (estadoAnterior === "cancelado") {
       await cliente.query("ROLLBACK");
       return res.status(409).json({ error: "El pedido está cancelado y ya no se puede cambiar" });
     }
@@ -1124,7 +1140,11 @@ app.put("/api/pedidos/:id/estado", verificarToken, verificarAdmin, async (req, r
     }
 
     await cliente.query("COMMIT");
-    res.json(await obtenerPedido(req.params.id));
+    const pedido = await obtenerPedido(req.params.id);
+    res.json(pedido);
+
+    // Solo si el estado cambió de verdad (elegir el mismo estado otra vez no vuelve a avisar).
+    if (estado !== estadoAnterior && correos.configurado()) correos.cambioDeEstado(pedido);
   } catch (error) {
     await cliente.query("ROLLBACK");
     console.error(error);
@@ -1637,15 +1657,31 @@ app.post("/api/mensajes", async (req, res) => {
   try {
     const resultado = await pool.query(
       `INSERT INTO mensajes (tipo, nombre, email, telefono, pedido, mensaje)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, creado_en AS "creadoEn"`,
       [tipo, nombre, email, telefono || null, pedido, mensaje],
     );
-    res.status(201).json({ id: resultado.rows[0].id });
+    const guardado = resultado.rows[0];
+    res.status(201).json({ id: guardado.id });
+
+    if (tipo === "arrepentimiento") avisarArrepentimiento({ ...guardado, nombre, email, pedido });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error al enviar el mensaje" });
   }
 });
+
+// La confirmación solo sale si el pedido es de ese email: así el formulario no sirve para mandarle correos a cualquiera.
+function avisarArrepentimiento(mensaje) {
+  if (!correos.configurado()) return;
+
+  pool
+    .query(
+      "SELECT 1 FROM pedidos pe JOIN usuarios u ON u.id = pe.usuario_id WHERE pe.id = $1 AND lower(u.email) = lower($2)",
+      [mensaje.pedido, mensaje.email],
+    )
+    .then((resultado) => resultado.rows.length > 0 && correos.arrepentimiento(mensaje))
+    .catch((error) => console.error("No se pudo revisar el pedido del arrepentimiento:", error.message));
+}
 
 const SELECT_MENSAJES = `
   SELECT id, tipo, nombre, email, telefono, pedido, mensaje, leido, creado_en AS "creadoEn"
