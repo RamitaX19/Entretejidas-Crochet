@@ -22,14 +22,13 @@ async function migrar() {
         await cliente.query("ROLLBACK").catch(() => {});
         throw new Error(`${archivo}: ${error.message}`);
       }
-
-      console.log(`Aplicada: ${archivo}`);
     }
+
+    const base = (await cliente.query("SELECT current_database() AS nombre")).rows[0].nombre;
+    console.log(`Base "${base}" al día. Migraciones: ${archivos.join(", ")}`);
   } finally {
     cliente.release();
   }
-
-  console.log(`La base "${process.env.DB_NAME}" está al día.`);
 }
 
 migrar()

@@ -8,44 +8,28 @@ const mercadoPago = require("./mercadopago");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
-const crypto = require("crypto");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Las fotos y los archivos digitales se guardan en la base: en Render, lo que se guarda en disco
+// se borra cada vez que el servidor se reinicia. Estas carpetas quedan para lo que se subió antes.
 const carpetaImagenes = path.join(__dirname, "uploads");
 // Los archivos digitales no se publican: solo se bajan desde /api/descargas.
 const carpetaArchivos = path.join(__dirname, "archivos");
-
-if (!fs.existsSync(carpetaImagenes)) {
-  fs.mkdirSync(carpetaImagenes);
-}
-
-if (!fs.existsSync(carpetaArchivos)) {
-  fs.mkdirSync(carpetaArchivos);
-}
 
 app.use("/uploads", express.static(carpetaImagenes, {
   setHeaders: (res) => res.set("X-Content-Type-Options", "nosniff"),
 }));
 
-const tiposPermitidos = {
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-};
+const tiposPermitidos = ["image/jpeg", "image/png", "image/webp"];
 
 const subida = multer({
-  storage: multer.diskStorage({
-    destination: carpetaImagenes,
-    filename: (req, file, cb) => {
-      cb(null, crypto.randomUUID() + tiposPermitidos[file.mimetype]);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (tiposPermitidos[file.mimetype]) {
+    if (tiposPermitidos.includes(file.mimetype)) {
       cb(null, true);
     } else {
       cb(new Error("TIPO_NO_PERMITIDO"));
@@ -53,25 +37,23 @@ const subida = multer({
   },
 });
 
+// Solo las fotos viejas están en disco (/uploads/...); las nuevas se borran junto con su fila.
 function borrarImagen(ruta) {
-  if (!ruta) return;
-  const archivo = path.join(carpetaImagenes, path.basename(ruta));
-  fs.unlink(archivo, () => {});
+  if (!ruta?.startsWith("/uploads/")) return;
+  fs.unlink(path.join(carpetaImagenes, path.basename(ruta)), () => {});
 }
 
-const extensionesArchivo = [".pdf", ".zip"];
+const tiposArchivo = {
+  ".pdf": "application/pdf",
+  ".zip": "application/zip",
+};
 
 const subidaArchivo = multer({
-  storage: multer.diskStorage({
-    destination: carpetaArchivos,
-    filename: (req, file, cb) => {
-      cb(null, crypto.randomUUID() + path.extname(file.originalname).toLowerCase());
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
   defParamCharset: "utf8",
   fileFilter: (req, file, cb) => {
-    if (extensionesArchivo.includes(path.extname(file.originalname).toLowerCase())) {
+    if (tiposArchivo[path.extname(file.originalname).toLowerCase()]) {
       cb(null, true);
     } else {
       cb(new Error("TIPO_NO_PERMITIDO"));
@@ -79,6 +61,7 @@ const subidaArchivo = multer({
   },
 });
 
+// Archivo digital que se subió cuando se guardaban en la carpeta archivos/.
 function borrarArchivo(nombre) {
   if (!nombre) return;
   fs.unlink(path.join(carpetaArchivos, path.basename(nombre)), () => {});
@@ -453,47 +436,85 @@ app.post("/api/productos/:id/imagenes", verificarToken, verificarAdmin, (req, re
     }
 
     const archivos = req.files || [];
-    const rutasNuevas = archivos.map((archivo) => `/uploads/${archivo.filename}`);
 
     if (archivos.length === 0) {
       return res.status(400).json({ error: "No llegó ninguna imagen" });
     }
 
+    const cliente = await pool.connect();
+
     try {
-      const producto = await pool.query("SELECT id FROM productos WHERE id = $1", [req.params.id]);
+      await cliente.query("BEGIN");
+      // Bloquea el producto: dos subidas a la vez no pueden pasarse del máximo de fotos.
+      const producto = await cliente.query("SELECT id FROM productos WHERE id = $1 FOR UPDATE", [req.params.id]);
 
       if (producto.rows.length === 0) {
-        rutasNuevas.forEach(borrarImagen);
+        await cliente.query("ROLLBACK");
         return res.status(404).json({ error: "Producto no encontrado" });
       }
 
-      const conteo = await pool.query(
+      const conteo = await cliente.query(
         "SELECT COUNT(*)::int AS total, COALESCE(MAX(orden), -1) AS ultimo FROM producto_imagenes WHERE producto_id = $1",
         [req.params.id]
       );
       const { total, ultimo } = conteo.rows[0];
 
       if (total + archivos.length > MAX_IMAGENES) {
-        rutasNuevas.forEach(borrarImagen);
+        await cliente.query("ROLLBACK");
         return res.status(400).json({
           error: `Cada producto puede tener hasta ${MAX_IMAGENES} fotos. Ya tiene ${total}.`,
         });
       }
 
-      for (let i = 0; i < rutasNuevas.length; i++) {
-        await pool.query(
-          "INSERT INTO producto_imagenes (producto_id, ruta, orden) VALUES ($1, $2, $3)",
-          [req.params.id, rutasNuevas[i], ultimo + 1 + i]
+      for (const [i, archivo] of archivos.entries()) {
+        // La ruta apunta a /api/fotos/:id, que devuelve la foto guardada en la base.
+        await cliente.query(
+          `WITH nueva AS (SELECT nextval(pg_get_serial_sequence('producto_imagenes', 'id')) AS id)
+           INSERT INTO producto_imagenes (id, producto_id, ruta, orden, datos, tipo)
+           SELECT id, $1::int, '/api/fotos/' || id, $2::int, $3::bytea, $4::varchar FROM nueva`,
+          [req.params.id, ultimo + 1 + i, archivo.buffer, archivo.mimetype]
         );
       }
 
+      await cliente.query("COMMIT");
       res.status(201).json(await obtenerProducto(req.params.id));
     } catch (err) {
+      await cliente.query("ROLLBACK");
       console.error(err);
-      rutasNuevas.forEach(borrarImagen);
       res.status(500).json({ error: "Error al guardar las imágenes" });
+    } finally {
+      cliente.release();
     }
   });
+});
+
+// Fotos guardadas en la base. Una foto nueva siempre tiene otro id, así que el navegador puede guardarlas.
+app.get("/api/fotos/:id", async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(404).json({ error: "Foto no encontrada" });
+  }
+
+  try {
+    const resultado = await pool.query(
+      "SELECT datos, tipo FROM producto_imagenes WHERE id = $1 AND datos IS NOT NULL",
+      [req.params.id]
+    );
+    const foto = resultado.rows[0];
+
+    if (!foto) {
+      return res.status(404).json({ error: "Foto no encontrada" });
+    }
+
+    res.set({
+      "Content-Type": foto.tipo,
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    });
+    res.send(foto.datos);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al traer la foto" });
+  }
 });
 
 app.delete("/api/imagenes/:id", verificarToken, verificarAdmin, async (req, res) => {
@@ -548,31 +569,43 @@ app.post("/api/productos/:id/archivo", verificarToken, verificarAdmin, (req, res
       return res.status(400).json({ error: "No llegó ningún archivo" });
     }
 
+    const cliente = await pool.connect();
+
     try {
-      const resultado = await pool.query("SELECT tipo, archivo FROM productos WHERE id = $1", [req.params.id]);
+      await cliente.query("BEGIN");
+      const resultado = await cliente.query("SELECT tipo, archivo FROM productos WHERE id = $1 FOR UPDATE", [req.params.id]);
       const producto = resultado.rows[0];
 
       if (!producto) {
-        borrarArchivo(req.file.filename);
+        await cliente.query("ROLLBACK");
         return res.status(404).json({ error: "Producto no encontrado" });
       }
 
       if (producto.tipo !== "digital") {
-        borrarArchivo(req.file.filename);
+        await cliente.query("ROLLBACK");
         return res.status(400).json({ error: "Solo los productos digitales llevan archivo" });
       }
 
-      await pool.query(
-        "UPDATE productos SET archivo = $1, archivo_nombre = $2 WHERE id = $3",
-        [req.file.filename, req.file.originalname, req.params.id]
+      await cliente.query(
+        `INSERT INTO producto_archivos (producto_id, tipo, datos) VALUES ($1, $2, $3::bytea)
+         ON CONFLICT (producto_id) DO UPDATE SET tipo = EXCLUDED.tipo, datos = EXCLUDED.datos, creado_en = now()`,
+        [req.params.id, tiposArchivo[path.extname(req.file.originalname).toLowerCase()], req.file.buffer]
       );
+      // "archivo" era el nombre en disco del archivo anterior; el nuevo queda en la base.
+      await cliente.query(
+        "UPDATE productos SET archivo = NULL, archivo_nombre = $1 WHERE id = $2",
+        [req.file.originalname, req.params.id]
+      );
+      await cliente.query("COMMIT");
 
       borrarArchivo(producto.archivo);
       res.status(201).json(await obtenerProducto(req.params.id));
     } catch (err) {
+      await cliente.query("ROLLBACK");
       console.error(err);
-      borrarArchivo(req.file.filename);
       res.status(500).json({ error: "Error al guardar el archivo" });
+    } finally {
+      cliente.release();
     }
   });
 });
@@ -585,6 +618,7 @@ app.delete("/api/productos/:id/archivo", verificarToken, verificarAdmin, async (
       return res.status(404).json({ error: "Producto no encontrado" });
     }
 
+    await pool.query("DELETE FROM producto_archivos WHERE producto_id = $1", [req.params.id]);
     await pool.query("UPDATE productos SET archivo = NULL, archivo_nombre = NULL WHERE id = $1", [req.params.id]);
     borrarArchivo(resultado.rows[0].archivo);
     res.json(await obtenerProducto(req.params.id));
@@ -1219,8 +1253,9 @@ app.post("/api/webhooks/mercadopago", async (req, res) => {
 app.get("/api/descargas/:productoId", verificarToken, async (req, res) => {
   try {
     const resultado = await pool.query(
-      `SELECT pr.archivo, pr.archivo_nombre
+      `SELECT pr.archivo, pr.archivo_nombre, a.tipo, a.datos
        FROM productos pr
+       LEFT JOIN producto_archivos a ON a.producto_id = pr.id
        WHERE pr.id = $1 AND pr.tipo = 'digital' AND EXISTS (
          SELECT 1 FROM pedido_items pi
          JOIN pedidos pe ON pe.id = pi.pedido_id
@@ -1235,6 +1270,13 @@ app.get("/api/descargas/:productoId", verificarToken, async (req, res) => {
       return res.status(403).json({ error: "La descarga se habilita cuando el pedido está pagado" });
     }
 
+    if (producto.datos) {
+      res.attachment(producto.archivo_nombre || "archivo");
+      res.set("X-Content-Type-Options", "nosniff");
+      return res.type(producto.tipo).send(producto.datos);
+    }
+
+    // Archivo subido antes de guardarlos en la base: está en la carpeta archivos/.
     if (!producto.archivo) {
       return res.status(404).json({ error: "El archivo todavía no está disponible" });
     }
@@ -1656,7 +1698,10 @@ app.delete("/api/mensajes/:id", verificarToken, verificarAdmin, async (req, res)
 
 // Tablas que crean las migraciones de la carpeta migraciones/: si falta alguna, se avisa al arrancar.
 // Al agregar una migración que crea una tabla, sumala a esta lista.
-const TABLAS_DE_MIGRACIONES = ["cupones", "categorias", "producto_variantes", "mensajes"];
+const TABLAS_DE_MIGRACIONES = [
+  "usuarios", "productos", "producto_imagenes", "pedidos", "pedido_items",
+  "cupones", "categorias", "producto_variantes", "mensajes", "producto_archivos",
+];
 
 async function avisarMigracionesPendientes() {
   const resultado = await pool.query(
@@ -1670,13 +1715,16 @@ async function avisarMigracionesPendientes() {
   }
 }
 
-app.listen(3000, (error) => {
+// Render indica el puerto en PORT; en la compu, 3000.
+const PUERTO = process.env.PORT || 3000;
+
+app.listen(PUERTO, (error) => {
   // En Express 5, si el puerto no se puede abrir (por ejemplo, porque ya está en uso) el error llega acá.
   if (error) {
-    console.error(`No se pudo abrir el puerto 3000 (${error.code || error.message}). ¿Quedó otro backend abierto?`);
+    console.error(`No se pudo abrir el puerto ${PUERTO} (${error.code || error.message}). ¿Quedó otro backend abierto?`);
     process.exit(1);
   }
 
-  console.log("Servidor corriendo en http://localhost:3000");
+  console.log(`Servidor corriendo en el puerto ${PUERTO}`);
   avisarMigracionesPendientes().catch((err) => console.error("No se pudo revisar la base:", err.message));
 });

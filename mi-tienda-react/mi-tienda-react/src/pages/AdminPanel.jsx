@@ -4,6 +4,7 @@ import { pedirApi } from "../api";
 import ProductoImagen from "../components/ProductoImagen";
 import AdminNav from "../components/AdminNav";
 import EditorVariantes from "../components/EditorVariantes";
+import { achicarImagen } from "../imagenes";
 import { COMBINACION_NUEVA, claveCombinacion, combinar, limpiarOpciones, nuevaOpcion, tieneVariantes } from "../variantes";
 
 const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/webp"];
@@ -28,6 +29,7 @@ function AdminPanel({ productos, setProductos, categorias }) {
   const [confirmandoId, setConfirmandoId] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  const [preparandoFotos, setPreparandoFotos] = useState(false);
   const campoNombre = useRef(null);
   const campoArchivos = useRef(null);
   const campoArchivoDigital = useRef(null);
@@ -79,18 +81,16 @@ function AdminPanel({ productos, setProductos, categorias }) {
       }));
   }
 
-  function elegirArchivos(e) {
+  async function elegirArchivos(e) {
     const elegidos = Array.from(e.target.files);
     if (elegidos.length === 0) return;
 
-    const invalido = elegidos.find(
-      (archivo) => !TIPOS_IMAGEN.includes(archivo.type) || archivo.size > TAMANO_MAXIMO
-    );
+    const tipoInvalido = elegidos.find((archivo) => !TIPOS_IMAGEN.includes(archivo.type));
 
-    if (invalido) {
+    if (tipoInvalido) {
       setAviso({
         tipo: "error",
-        texto: `"${invalido.name}" no se puede usar: tiene que ser JPG, PNG o WEBP de hasta 5 MB.`,
+        texto: `"${tipoInvalido.name}" no se puede usar: tiene que ser JPG, PNG o WEBP.`,
       });
       quitarArchivos();
       return;
@@ -105,10 +105,25 @@ function AdminPanel({ productos, setProductos, categorias }) {
       return;
     }
 
+    setPreparandoFotos(true);
+    const achicadas = await Promise.all(elegidos.map(achicarImagen));
+    setPreparandoFotos(false);
+
+    const muyPesada = achicadas.find((archivo) => archivo.size > TAMANO_MAXIMO);
+
+    if (muyPesada) {
+      setAviso({
+        tipo: "error",
+        texto: `"${muyPesada.name}" pesa más de 5 MB incluso achicada. Probá con otra foto.`,
+      });
+      quitarArchivos();
+      return;
+    }
+
     vistasPrevias.forEach((url) => URL.revokeObjectURL(url));
     setAviso(null);
-    setArchivos(elegidos);
-    setVistasPrevias(elegidos.map((archivo) => URL.createObjectURL(archivo)));
+    setArchivos(achicadas);
+    setVistasPrevias(achicadas.map((archivo) => URL.createObjectURL(archivo)));
   }
 
   function elegirArchivoDigital(e) {
@@ -471,7 +486,7 @@ function AdminPanel({ productos, setProductos, categorias }) {
 
         <div className="campo">
           <label htmlFor="prod-imagenes">
-            Agregar fotos (JPG, PNG o WEBP, hasta 5 MB cada una, máximo {MAX_IMAGENES} por producto)
+            Agregar fotos (JPG, PNG o WEBP, máximo {MAX_IMAGENES} por producto; se achican solas antes de subirlas)
           </label>
           <input
             id="prod-imagenes"
@@ -500,8 +515,12 @@ function AdminPanel({ productos, setProductos, categorias }) {
         )}
 
         <div className="acciones-form">
-          <button type="submit" className="boton" disabled={guardando}>
-            {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : "Crear producto"}
+          <button type="submit" className="boton" disabled={guardando || preparandoFotos}>
+            {guardando
+              ? "Guardando..."
+              : preparandoFotos
+                ? "Preparando fotos..."
+                : editandoId ? "Guardar cambios" : "Crear producto"}
           </button>
           {editandoId && (
             <button type="button" className="boton boton-secundario" onClick={limpiarFormulario}>
