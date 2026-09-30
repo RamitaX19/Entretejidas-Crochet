@@ -9,8 +9,12 @@ const correos = require("./correos");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
+const { Limite } = require("./limites");
 
 const app = express();
+// En Render las visitas llegan a través de un proxy: así req.ip es la IP de la persona y no la del proxy.
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json());
 
@@ -653,11 +657,39 @@ app.post("/api/registro", async (req, res) => {
   }
 });
 
+// Contraseñas equivocadas: hasta 5 por email cada 15 minutos (protege cada cuenta) y 30 por conexión
+// (frena a quien prueba muchas cuentas). Los correos para cambiar la contraseña también tienen tope.
+const fallosPorEmail = new Limite({ maximo: 5, minutos: 15 });
+const fallosPorIp = new Limite({ maximo: 30, minutos: 15 });
+const recuperacionesPorEmail = new Limite({ maximo: 3, minutos: 60 });
+const recuperacionesPorIp = new Limite({ maximo: 10, minutos: 60 });
+
+function claveEmail(email) {
+  return String(email).trim().toLowerCase();
+}
+
+function demasiadosIntentos(res, espera, mensaje) {
+  const minutos = Math.ceil(espera / 60000);
+  res.set("Retry-After", String(Math.ceil(espera / 1000)));
+  return res.status(429).json({ error: mensaje(minutos === 1 ? "1 minuto" : `${minutos} minutos`) });
+}
+
 app.post("/api/login", async (req, res) => {
-  const { email, contrasena } = req.body;
+  const { email, contrasena } = req.body ?? {};
 
   if (!email || !contrasena) {
     return res.status(400).json({ error: "Faltan datos" });
+  }
+
+  const cuenta = claveEmail(email);
+  const espera = Math.max(fallosPorEmail.espera(cuenta), fallosPorIp.espera(req.ip));
+
+  if (espera > 0) {
+    return demasiadosIntentos(
+      res,
+      espera,
+      (tiempo) => `Hubo muchos intentos con una contraseña equivocada. Probá de nuevo en ${tiempo} o recuperá tu contraseña.`,
+    );
   }
 
   try {
@@ -667,16 +699,15 @@ app.post("/api/login", async (req, res) => {
     );
 
     const usuario = resultado.rows[0];
-
-    if (!usuario) {
-      return res.status(401).json({ error: "Email o contraseña incorrectos" });
-    }
-
-    const coincide = await bcrypt.compare(contrasena, usuario.contrasena);
+    const coincide = usuario ? await bcrypt.compare(contrasena, usuario.contrasena) : false;
 
     if (!coincide) {
+      fallosPorEmail.sumar(cuenta);
+      fallosPorIp.sumar(req.ip);
       return res.status(401).json({ error: "Email o contraseña incorrectos" });
     }
+
+    fallosPorEmail.olvidar(cuenta);
 
     const token = jwt.sign(
       { id: usuario.id, nombre: usuario.nombre, esAdmin: usuario.es_admin },
@@ -694,6 +725,117 @@ app.post("/api/login", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error al iniciar sesion" });
+  }
+});
+
+const LARGO_MINIMO_CONTRASENA = 8;
+
+// En la base se guarda el hash del código del link, nunca el código.
+function hashDe(codigo) {
+  return crypto.createHash("sha256").update(codigo).digest("hex");
+}
+
+// "¿Olvidaste tu contraseña?": manda por correo un link que vence en 1 hora y sirve una sola vez.
+app.post("/api/recuperar", (req, res) => {
+  const email = texto(req.body?.email);
+
+  if (!EMAIL_VALIDO.test(email)) {
+    return res.status(400).json({ error: "Escribí un email válido" });
+  }
+
+  const cuenta = claveEmail(email);
+  const espera = Math.max(recuperacionesPorEmail.espera(cuenta), recuperacionesPorIp.espera(req.ip));
+
+  if (espera > 0) {
+    return demasiadosIntentos(res, espera, (tiempo) => `Ya pediste varios correos. Probá de nuevo en ${tiempo}.`);
+  }
+
+  recuperacionesPorEmail.sumar(cuenta);
+  recuperacionesPorIp.sumar(req.ip);
+
+  // La respuesta es la misma exista o no la cuenta, y el correo se prepara después de responder:
+  // así nadie puede averiguar qué emails están registrados.
+  res.json({ mensaje: "Si hay una cuenta con ese email, te mandamos un link para crear una contraseña nueva." });
+  mandarLinkDeRecuperacion(email);
+});
+
+async function mandarLinkDeRecuperacion(email) {
+  try {
+    if (!correos.configurado()) {
+      console.error("No se puede mandar el link para cambiar la contraseña: falta RESEND_API_KEY.");
+      return;
+    }
+
+    // Sin distinguir mayúsculas, pero si hay una cuenta escrita igual, va primero.
+    const usuario = (await pool.query(
+      "SELECT id, nombre, email FROM usuarios WHERE lower(email) = lower($1) ORDER BY (email = $1) DESC LIMIT 1",
+      [email],
+    )).rows[0];
+
+    if (!usuario) return;
+
+    const codigo = crypto.randomBytes(32).toString("hex");
+    const guardado = (await pool.query(
+      `INSERT INTO recuperaciones (usuario_id, codigo_hash, expira)
+       VALUES ($1, $2, LOCALTIMESTAMP + interval '1 hour') RETURNING id, creado_en AS "creadoEn"`,
+      [usuario.id, hashDe(codigo)],
+    )).rows[0];
+
+    await correos.recuperarContrasena({ ...guardado, nombre: usuario.nombre, email: usuario.email, codigo });
+  } catch (error) {
+    console.error("No se pudo preparar el link para cambiar la contraseña:", error.message);
+  }
+}
+
+app.post("/api/restablecer", async (req, res) => {
+  const codigo = texto(req.body?.codigo);
+  const contrasena = typeof req.body?.contrasena === "string" ? req.body.contrasena : "";
+
+  if (!/^[0-9a-f]{64}$/.test(codigo)) {
+    return res.status(400).json({ error: "El link no es válido. Pedí uno nuevo desde Iniciar sesión." });
+  }
+
+  if (contrasena.length < LARGO_MINIMO_CONTRASENA) {
+    return res.status(400).json({ error: `La contraseña tiene que tener al menos ${LARGO_MINIMO_CONTRASENA} caracteres` });
+  }
+
+  const cliente = await pool.connect();
+
+  try {
+    await cliente.query("BEGIN");
+    const recuperacion = (await cliente.query(
+      `SELECT r.usuario_id, u.email
+       FROM recuperaciones r JOIN usuarios u ON u.id = r.usuario_id
+       WHERE r.codigo_hash = $1 AND r.usado_en IS NULL AND r.expira > LOCALTIMESTAMP
+       FOR UPDATE OF r`,
+      [hashDe(codigo)],
+    )).rows[0];
+
+    if (!recuperacion) {
+      await cliente.query("ROLLBACK");
+      return res.status(400).json({ error: "El link ya se usó o venció. Pedí uno nuevo desde Iniciar sesión." });
+    }
+
+    await cliente.query("UPDATE usuarios SET contrasena = $1 WHERE id = $2", [
+      await bcrypt.hash(contrasena, 10),
+      recuperacion.usuario_id,
+    ]);
+    // Se anulan también los otros links que haya pedido esa cuenta.
+    await cliente.query(
+      "UPDATE recuperaciones SET usado_en = LOCALTIMESTAMP WHERE usuario_id = $1 AND usado_en IS NULL",
+      [recuperacion.usuario_id],
+    );
+    await cliente.query("COMMIT");
+
+    // Con la contraseña nueva puede entrar enseguida, aunque antes se haya pasado de intentos.
+    fallosPorEmail.olvidar(claveEmail(recuperacion.email));
+    res.json({ mensaje: "Listo: ya podés iniciar sesión con tu contraseña nueva." });
+  } catch (error) {
+    await cliente.query("ROLLBACK");
+    console.error(error);
+    res.status(500).json({ error: "Error al cambiar la contraseña" });
+  } finally {
+    cliente.release();
   }
 });
 
@@ -1736,7 +1878,7 @@ app.delete("/api/mensajes/:id", verificarToken, verificarAdmin, async (req, res)
 // Al agregar una migración que crea una tabla, sumala a esta lista.
 const TABLAS_DE_MIGRACIONES = [
   "usuarios", "productos", "producto_imagenes", "pedidos", "pedido_items",
-  "cupones", "categorias", "producto_variantes", "mensajes", "producto_archivos",
+  "cupones", "categorias", "producto_variantes", "mensajes", "producto_archivos", "recuperaciones",
 ];
 
 async function avisarMigracionesPendientes() {

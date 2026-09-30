@@ -17,6 +17,7 @@ import Arrepentimiento from "./pages/Arrepentimiento";
 import Terminos from "./pages/Terminos";
 import Privacidad from "./pages/Privacidad";
 import Devoluciones from "./pages/Devoluciones";
+import Restablecer from "./pages/Restablecer";
 import AdminCategorias from "./pages/AdminCategorias";
 import AdminMensajes from "./pages/AdminMensajes";
 import RutaProtegida from "./components/RutaProtegida";
@@ -315,6 +316,7 @@ function App() {
         <Route path="/terminos" element={<Terminos />} />
         <Route path="/privacidad" element={<Privacidad />} />
         <Route path="/devoluciones" element={<Devoluciones />} />
+        <Route path="/restablecer" element={<Restablecer onAbrirAuth={abrirAuth} />} />
         <Route
           path="/producto/:id"
           element={

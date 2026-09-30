@@ -264,4 +264,30 @@ async function arrepentimiento(mensaje) {
   }
 }
 
-module.exports = { configurado, pedidoCreado, cambioDeEstado, arrepentimiento };
+async function recuperarContrasena({ id, nombre, email, codigo, creadoEn }) {
+  try {
+    const url = enlace(`/restablecer#${codigo}`);
+
+    if (!url) {
+      console.error("No se puede mandar el link para cambiar la contraseña: falta FRONTEND_URL.");
+      return;
+    }
+
+    await enviar({
+      para: email,
+      asunto: `Creá una contraseña nueva para ${TIENDA}`,
+      titulo: "Creá una contraseña nueva",
+      bloques: [
+        parrafo(`¡Hola, ${nombre}! Recibimos un pedido para cambiar la contraseña de tu cuenta.`),
+        boton("Crear contraseña nueva", url),
+        parrafo("El link vence en 1 hora y sirve una sola vez."),
+        parrafo("Si no lo pediste vos, ignorá este correo: tu contraseña sigue siendo la misma."),
+      ],
+      clave: claveDe("recuperacion", id, creadoEn, "link"),
+    });
+  } catch (error) {
+    console.error("No se pudo armar el correo para cambiar la contraseña:", error.message);
+  }
+}
+
+module.exports = { configurado, pedidoCreado, cambioDeEstado, arrepentimiento, recuperarContrasena };
