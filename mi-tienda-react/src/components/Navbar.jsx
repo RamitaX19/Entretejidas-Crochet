@@ -24,7 +24,9 @@ function Navbar({
   return (
     <header className="cabecera">
       <div className="cabecera-contenido">
-        <Link to="/" className="marca" onClick={cerrarMenu}>Entretejidas</Link>
+        <Link to="/" className="marca" onClick={cerrarMenu}>
+          <img src="/logo-entretejidas.svg" alt="Entretejidas" />
+        </Link>
 
         <nav
           id="menu-cuenta"

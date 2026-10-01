@@ -28,11 +28,10 @@ function Icono({ children }) {
 function Banner({ diapositivas = DIAPOSITIVAS }) {
   const total = diapositivas.length;
   const [actual, setActual] = useState(0);
-  const [pausaElegida, setPausaElegida] = useState(null);
   const [enUso, setEnUso] = useState(false);
   const inicioDelToque = useRef(null);
   const menosMovimiento = useSyncExternalStore(suscribirMovimiento, prefiereMenosMovimiento);
-  const pausado = pausaElegida ?? menosMovimiento;
+  const pausado = menosMovimiento;
   const girando = total > 1 && !pausado && !enUso;
 
   useEffect(() => {
@@ -107,14 +106,6 @@ function Banner({ diapositivas = DIAPOSITIVAS }) {
 
       {total > 1 && (
         <div className="banner-controles">
-          <button
-            type="button"
-            className="banner-control"
-            onClick={() => setPausaElegida(!pausado)}
-            aria-label={pausado ? "Reanudar el carrusel" : "Pausar el carrusel"}
-          >
-            <Icono>{pausado ? <path d="M8 5v14l11-7z" /> : <path d="M9 5v14M15 5v14" />}</Icono>
-          </button>
           <button type="button" className="banner-control" onClick={() => ir(actual - 1)} aria-label="Diapositiva anterior">
             <Icono><path d="M15 18l-6-6 6-6" /></Icono>
           </button>

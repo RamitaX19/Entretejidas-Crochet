@@ -41,9 +41,12 @@ h3 { font-size: 1.125rem; }
 }
 .cabecera a { color: #fff; }
 .marca {
-  font-family: "Young Serif", Georgia, serif;
-  font-size: 1.25rem; text-decoration: none;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
+.marca img { height: 44px; width: auto; display: block; }
+
 .cabecera-acciones { display: flex; align-items: center; gap: 0.5rem; }
 .cabecera-acciones .boton { padding: 0.5rem 0.75rem; }
 .cuenta {
@@ -61,6 +64,9 @@ h3 { font-size: 1.125rem; }
     var(--cinta);
 }
 
+@media (max-width: 480px) {
+  .marca img { height: 34px; }
+}
 @media (min-width: 800px) {
   .cabecera-contenido { padding: 1rem 1.5rem; }
   .marca { font-size: 1.5rem; }
