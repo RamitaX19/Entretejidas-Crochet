@@ -24,6 +24,7 @@ import RutaProtegida from "./components/RutaProtegida";
 import Navbar from "./components/Navbar";
 import NavSecundaria from "./components/NavSecundaria";
 import Footer from "./components/Footer";
+import BotonWhatsapp from "./components/BotonWhatsapp";
 import AuthModal from "./components/AuthModal";
 import ProductoDetalle from "./components/productoDetalle";
 import { API_URL } from "./config";
@@ -414,6 +415,8 @@ function App() {
       </Routes>
 
       <Footer />
+      {/* En el panel de administración no hace falta. */}
+      {!pathname.startsWith("/admin") && <BotonWhatsapp />}
 
       {authAbierto && (
         <AuthModal

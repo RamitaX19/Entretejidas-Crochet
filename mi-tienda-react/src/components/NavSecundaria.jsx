@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { arbolDeCategorias, linkDeCategoria } from "../categorias";
 
 function NavSecundaria({ categorias }) {
   const navigate = useNavigate();
@@ -63,11 +64,22 @@ function NavSecundaria({ categorias }) {
                   <li>
                     <Link to="/productos" onClick={cerrarPanel}>Todos los productos</Link>
                   </li>
-                  {categorias.map((categoria) => (
+                  {arbolDeCategorias(categorias).map((categoria) => (
                     <li key={categoria.id}>
-                      <Link to={`/productos?categoria=${categoria.id}`} onClick={cerrarPanel}>
+                      <Link to={linkDeCategoria(categoria.id)} onClick={cerrarPanel}>
                         {categoria.nombre}
                       </Link>
+                      {categoria.subcategorias.length > 0 && (
+                        <ul className="panel-subcategorias">
+                          {categoria.subcategorias.map((sub) => (
+                            <li key={sub.id}>
+                              <Link to={linkDeCategoria(sub.id)} onClick={cerrarPanel}>
+                                {sub.nombre}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </li>
                   ))}
                 </ul>

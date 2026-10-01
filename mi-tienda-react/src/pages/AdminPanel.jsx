@@ -5,6 +5,7 @@ import ProductoImagen from "../components/ProductoImagen";
 import AdminNav from "../components/AdminNav";
 import EditorVariantes from "../components/EditorVariantes";
 import { achicarImagen } from "../imagenes";
+import { opcionesDeCategorias, rutaDeCategoria } from "../categorias";
 import { COMBINACION_NUEVA, claveCombinacion, combinar, limpiarOpciones, nuevaOpcion, tieneVariantes } from "../variantes";
 
 const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/webp"];
@@ -381,12 +382,20 @@ function AdminPanel({ productos, setProductos, categorias }) {
 
         <div className="campo">
           <label htmlFor="prod-categoria">Categoría</label>
-          <select id="prod-categoria" value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)}>
+          <select
+            id="prod-categoria"
+            value={categoriaId}
+            onChange={(e) => setCategoriaId(e.target.value)}
+            aria-describedby="ayuda-categoria"
+          >
             <option value="">Sin categoría</option>
-            {categorias.map((categoria) => (
-              <option key={categoria.id} value={categoria.id}>{categoria.nombre}</option>
+            {opcionesDeCategorias(categorias).map((opcion) => (
+              <option key={opcion.id} value={opcion.id}>{opcion.etiqueta}</option>
             ))}
           </select>
+          <p id="ayuda-categoria" className="nota">
+            Las subcategorías aparecen como "Categoría › Subcategoría". Se crean en la sección Categorías.
+          </p>
         </div>
 
         {tipo === "fisico" && (
@@ -558,7 +567,7 @@ function AdminPanel({ productos, setProductos, categorias }) {
                     <ProductoImagen imagen={producto.imagenes[0]?.ruta} className="miniatura" />
                   </td>
                   <th scope="row">{producto.nombre}</th>
-                  <td>{producto.categoria ?? "—"}</td>
+                  <td>{rutaDeCategoria(producto) || "—"}</td>
                   <td>
                     {producto.tipo === "digital"
                       ? producto.archivoNombre ? "Digital" : "Digital (sin archivo)"

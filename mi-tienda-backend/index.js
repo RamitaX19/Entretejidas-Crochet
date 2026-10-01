@@ -220,6 +220,7 @@ function validarProducto(datos = {}) {
 const SELECT_PRODUCTOS = `
   SELECT p.id, p.nombre, p.precio, p.tipo, p.descripcion, p.stock, p.opciones,
     p.categoria_id AS "categoriaId", c.nombre AS categoria,
+    c.padre_id AS "categoriaPadreId", cp.nombre AS "categoriaPadre",
     p.archivo_nombre AS "archivoNombre",
     COALESCE((
       SELECT json_agg(json_build_object('id', i.id, 'ruta', i.ruta) ORDER BY i.orden, i.id)
@@ -232,6 +233,7 @@ const SELECT_PRODUCTOS = `
     ), '[]'::json) AS variantes
   FROM productos p
   LEFT JOIN categorias c ON c.id = p.categoria_id
+  LEFT JOIN categorias cp ON cp.id = c.padre_id
 `;
 
 async function obtenerProducto(id) {
@@ -1658,20 +1660,45 @@ app.post("/api/cupones/validar", verificarToken, async (req, res) => {
   }
 });
 
-function validarNombreCategoria(valor) {
-  const nombre = texto(valor);
+function validarCategoria(datos) {
+  const nombre = texto(datos?.nombre);
+  const padreId = vacio(datos?.padreId) ? null : Number(datos.padreId);
 
   if (nombre.length < 2 || nombre.length > 60) {
     return { error: "El nombre de la categoría tiene que tener entre 2 y 60 letras" };
   }
 
-  return { nombre };
+  if (padreId !== null && !Number.isInteger(padreId)) {
+    return { error: "La categoría elegida no es válida" };
+  }
+
+  return { nombre, padreId };
 }
+
+// Hay dos niveles: una subcategoría va dentro de una categoría principal y no puede tener otras adentro.
+async function revisarUbicacion(padreId, id = null) {
+  if (padreId === null) return null;
+  if (padreId === id) return "Una categoría no puede ir dentro de sí misma";
+
+  const padre = (await pool.query("SELECT padre_id FROM categorias WHERE id = $1", [padreId])).rows[0];
+
+  if (!padre) return "La categoría elegida ya no existe";
+  if (padre.padre_id !== null) return "Una subcategoría no puede tener otras subcategorías adentro";
+
+  if (id !== null) {
+    const subcategorias = await pool.query("SELECT 1 FROM categorias WHERE padre_id = $1 LIMIT 1", [id]);
+    if (subcategorias.rows.length > 0) return "Esta categoría tiene subcategorías: no puede ir dentro de otra";
+  }
+
+  return null;
+}
+
+const NOMBRE_REPETIDO = "Ya existe una categoría con ese nombre en ese lugar";
 
 app.get("/api/categorias", async (req, res) => {
   try {
     const resultado = await pool.query(`
-      SELECT c.id, c.nombre, COUNT(p.id)::int AS productos
+      SELECT c.id, c.nombre, c.padre_id AS "padreId", COUNT(p.id)::int AS productos
       FROM categorias c
       LEFT JOIN productos p ON p.categoria_id = c.id
       GROUP BY c.id
@@ -1685,21 +1712,30 @@ app.get("/api/categorias", async (req, res) => {
 });
 
 app.post("/api/categorias", verificarToken, verificarAdmin, async (req, res) => {
-  const validacion = validarNombreCategoria(req.body?.nombre);
+  const validacion = validarCategoria(req.body);
 
   if (validacion.error) {
     return res.status(400).json({ error: validacion.error });
   }
 
   try {
+    const problema = await revisarUbicacion(validacion.padreId);
+
+    if (problema) {
+      return res.status(400).json({ error: problema });
+    }
+
     const resultado = await pool.query(
-      "INSERT INTO categorias (nombre) VALUES ($1) RETURNING id, nombre",
-      [validacion.nombre],
+      `INSERT INTO categorias (nombre, padre_id) VALUES ($1, $2) RETURNING id, nombre, padre_id AS "padreId"`,
+      [validacion.nombre, validacion.padreId],
     );
     res.status(201).json({ ...resultado.rows[0], productos: 0 });
   } catch (error) {
     if (error.code === "23505") {
-      return res.status(409).json({ error: "Ya existe una categoría con ese nombre" });
+      return res.status(409).json({ error: NOMBRE_REPETIDO });
+    }
+    if (error.code === "23503") {
+      return res.status(400).json({ error: "La categoría elegida ya no existe" });
     }
     console.error(error);
     res.status(500).json({ error: "Error al crear la categoría" });
@@ -1707,16 +1743,27 @@ app.post("/api/categorias", verificarToken, verificarAdmin, async (req, res) => 
 });
 
 app.put("/api/categorias/:id", verificarToken, verificarAdmin, async (req, res) => {
-  const validacion = validarNombreCategoria(req.body?.nombre);
+  const validacion = validarCategoria(req.body);
+  const id = Number(req.params.id);
 
   if (validacion.error) {
     return res.status(400).json({ error: validacion.error });
   }
 
+  if (!Number.isInteger(id)) {
+    return res.status(404).json({ error: "Categoría no encontrada" });
+  }
+
   try {
+    const problema = await revisarUbicacion(validacion.padreId, id);
+
+    if (problema) {
+      return res.status(400).json({ error: problema });
+    }
+
     const resultado = await pool.query(
-      "UPDATE categorias SET nombre = $1 WHERE id = $2 RETURNING id, nombre",
-      [validacion.nombre, req.params.id],
+      `UPDATE categorias SET nombre = $1, padre_id = $2 WHERE id = $3 RETURNING id, nombre, padre_id AS "padreId"`,
+      [validacion.nombre, validacion.padreId, id],
     );
 
     if (resultado.rows.length === 0) {
@@ -1726,14 +1773,17 @@ app.put("/api/categorias/:id", verificarToken, verificarAdmin, async (req, res) 
     res.json(resultado.rows[0]);
   } catch (error) {
     if (error.code === "23505") {
-      return res.status(409).json({ error: "Ya existe una categoría con ese nombre" });
+      return res.status(409).json({ error: NOMBRE_REPETIDO });
+    }
+    if (error.code === "23503") {
+      return res.status(400).json({ error: "La categoría elegida ya no existe" });
     }
     console.error(error);
     res.status(500).json({ error: "Error al cambiar la categoría" });
   }
 });
 
-// Al borrar una categoría, sus productos quedan "sin categoría" (no se borran).
+// Al borrar una categoría se borran sus subcategorías, y los productos quedan "sin categoría" (no se borran).
 app.delete("/api/categorias/:id", verificarToken, verificarAdmin, async (req, res) => {
   try {
     const resultado = await pool.query("DELETE FROM categorias WHERE id = $1 RETURNING id", [req.params.id]);

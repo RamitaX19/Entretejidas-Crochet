@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import ProductCard from "../components/ProductCard";
 import { hayStock, preciosDe, rangoPrecios, tieneVariantes } from "../variantes";
+import { arbolDeCategorias, estaEnCategoria, opcionesDeCategorias } from "../categorias";
 
 // Sin tildes y en minúsculas, para que "patron" encuentre "Patrón".
 function normalizar(texto) {
@@ -67,11 +68,16 @@ function Catalogo({ productos, categorias, cargando, error }) {
     .map(([nombre, valor]) => [nombre.slice(PREFIJO_OPCION.length), valor]);
 
   const palabras = normalizar(q).split(/\s+/).filter(Boolean);
+  const arbol = arbolDeCategorias(categorias);
   const categoriaElegida = categorias.find((c) => String(c.id) === categoria);
+  // La principal de lo elegido (ella misma, o la de la subcategoría) y sus subcategorías.
+  const principal = arbol.find((c) => c.id === (categoriaElegida?.padreId ?? categoriaElegida?.id));
 
   // Búsqueda, categoría, tipo y precio. Los filtros de opciones se arman con estos productos.
   const candidatos = productos.filter((producto) => {
-    const textoProducto = normalizar(`${producto.nombre} ${producto.descripcion} ${producto.categoria ?? ""}`);
+    const textoProducto = normalizar(
+      `${producto.nombre} ${producto.descripcion} ${producto.categoria ?? ""} ${producto.categoriaPadre ?? ""}`,
+    );
     // Con variantes de distinto precio, alcanza con que una entre en el rango.
     const precioEnRango = preciosDe(producto).some(
       (precio) => (minimo === "" || precio >= Number(minimo)) && (maximo === "" || precio <= Number(maximo)),
@@ -79,7 +85,7 @@ function Catalogo({ productos, categorias, cargando, error }) {
 
     return (
       palabras.every((palabra) => textoProducto.includes(palabra)) &&
-      (!categoria || String(producto.categoriaId) === categoria) &&
+      (!categoria || estaEnCategoria(producto, Number(categoria))) &&
       (!tipo || producto.tipo === tipo) &&
       precioEnRango
     );
@@ -117,7 +123,17 @@ function Catalogo({ productos, categorias, cargando, error }) {
   return (
     <main className="catalogo">
       <div className="catalogo-encabezado">
-        <h1>{categoriaElegida ? categoriaElegida.nombre : "Productos"}</h1>
+        <div>
+          {categoriaElegida?.padreId && principal && (
+            <p className="miga">
+              <button type="button" className="boton-enlace" onClick={() => cambiar("categoria", String(principal.id))}>
+                {principal.nombre}
+              </button>{" "}
+              <span aria-hidden="true">›</span>
+            </p>
+          )}
+          <h1>{categoriaElegida ? categoriaElegida.nombre : "Productos"}</h1>
+        </div>
         <button
           type="button"
           className="boton boton-secundario boton-filtros"
@@ -146,8 +162,8 @@ function Catalogo({ productos, categorias, cargando, error }) {
             <label htmlFor="filtro-categoria">Categoría</label>
             <select id="filtro-categoria" value={categoria} onChange={(e) => cambiar("categoria", e.target.value)}>
               <option value="">Todas</option>
-              {categorias.map((c) => (
-                <option key={c.id} value={c.id}>{c.nombre}</option>
+              {opcionesDeCategorias(categorias).map((opcion) => (
+                <option key={opcion.id} value={opcion.id}>{opcion.etiqueta}</option>
               ))}
             </select>
           </div>
@@ -212,6 +228,25 @@ function Catalogo({ productos, categorias, cargando, error }) {
         </aside>
 
         <section className="catalogo-resultados" aria-labelledby="titulo-resultados">
+          {principal && principal.subcategorias.length > 0 && (
+            <nav className="subcategorias" aria-label={`Subcategorías de ${principal.nombre}`}>
+              <ul className="chips">
+                {[{ id: principal.id, nombre: `Todo ${principal.nombre}` }, ...principal.subcategorias].map((opcion) => (
+                  <li key={opcion.id}>
+                    <button
+                      type="button"
+                      className="chip"
+                      aria-pressed={categoria === String(opcion.id)}
+                      onClick={() => cambiar("categoria", String(opcion.id))}
+                    >
+                      {opcion.nombre}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
+
           <div className="resultados-barra">
             <p id="titulo-resultados" role="status">
               {cargando ? "Cargando productos..." : `${resultados.length} ${resultados.length === 1 ? "producto" : "productos"}`}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import Galeria from "../components/Galeria";
 import { claveCarrito, precioDe, rangoPrecios, tieneVariantes } from "../variantes";
+import { linkDeCategoria } from "../categorias";
 
 function ProductoDetalle(props) {
   const { id } = useParams();
@@ -99,9 +100,15 @@ function DetalleDelProducto({ id, productos, carrito, cargando, agregarAlCarrito
 
         <div className="detalle-info">
           {producto.categoria && (
-            <Link to={`/productos?categoria=${producto.categoriaId}`} className="producto-categoria">
-              {producto.categoria}
-            </Link>
+            <p className="producto-categoria">
+              {producto.categoriaPadreId && (
+                <>
+                  <Link to={linkDeCategoria(producto.categoriaPadreId)}>{producto.categoriaPadre}</Link>
+                  <span aria-hidden="true"> › </span>
+                </>
+              )}
+              <Link to={linkDeCategoria(producto.categoriaId)}>{producto.categoria}</Link>
+            </p>
           )}
           <h1>{producto.nombre}</h1>
 

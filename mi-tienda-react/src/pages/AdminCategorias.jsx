@@ -2,15 +2,30 @@ import { useEffect, useState } from "react";
 import { API_URL } from "../config";
 import { leerJson, pedirApi } from "../api";
 import AdminNav from "../components/AdminNav";
+import { arbolDeCategorias } from "../categorias";
 
 const ERROR_CONEXION = "No se pudo conectar con el servidor. Probá de nuevo.";
 
+// Select "Dentro de": ninguna (categoría principal) o una de las principales.
+function SelectUbicacion({ id, valor, onCambiar, principales, excluir }) {
+  return (
+    <select id={id} value={valor} onChange={(e) => onCambiar(e.target.value)}>
+      <option value="">Ninguna: es una categoría principal</option>
+      {principales
+        .filter((categoria) => categoria.id !== excluir)
+        .map((categoria) => (
+          <option key={categoria.id} value={categoria.id}>{categoria.nombre}</option>
+        ))}
+    </select>
+  );
+}
+
 function AdminCategorias({ onCategoriasCambiadas }) {
   const [categorias, setCategorias] = useState([]);
+  const [version, setVersion] = useState(0);
   const [cargando, setCargando] = useState(true);
-  const [nueva, setNueva] = useState("");
-  const [editandoId, setEditandoId] = useState(null);
-  const [nombreEditado, setNombreEditado] = useState("");
+  const [nueva, setNueva] = useState({ nombre: "", padreId: "" });
+  const [editando, setEditando] = useState(null);
   const [confirmandoId, setConfirmandoId] = useState(null);
   const [aviso, setAviso] = useState(null);
 
@@ -23,7 +38,9 @@ function AdminCategorias({ onCategoriasCambiadas }) {
         setAviso({ tipo: "error", texto: "No se pudieron cargar las categorías. Probá de nuevo." });
       })
       .finally(() => setCargando(false));
-  }, []);
+  }, [version]);
+
+  const arbol = arbolDeCategorias(categorias);
 
   async function pedirCambio(ruta, metodo, cuerpo) {
     setAviso(null);
@@ -41,6 +58,8 @@ function AdminCategorias({ onCategoriasCambiadas }) {
         return null;
       }
 
+      // Se vuelve a leer la lista: así los totales y las subcategorías quedan siempre al día.
+      setVersion((v) => v + 1);
       onCategoriasCambiadas();
       return datos;
     } catch (err) {
@@ -50,32 +69,41 @@ function AdminCategorias({ onCategoriasCambiadas }) {
     }
   }
 
+  function nombreDe(id) {
+    return categorias.find((categoria) => categoria.id === Number(id))?.nombre;
+  }
+
   async function crear(e) {
     e.preventDefault();
-    const creada = await pedirCambio("/api/categorias", "POST", { nombre: nueva });
+    const creada = await pedirCambio("/api/categorias", "POST", { nombre: nueva.nombre, padreId: nueva.padreId || null });
 
     if (creada) {
-      setCategorias((lista) => [...lista, creada].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")));
-      setNueva("");
-      setAviso({ tipo: "ok", texto: `Categoría "${creada.nombre}" creada.` });
+      setAviso({
+        tipo: "ok",
+        texto: creada.padreId
+          ? `Subcategoría "${creada.nombre}" creada dentro de "${nombreDe(creada.padreId)}".`
+          : `Categoría "${creada.nombre}" creada.`,
+      });
+      setNueva({ nombre: "", padreId: nueva.padreId });
     }
   }
 
   function empezarEdicion(categoria) {
     setAviso(null);
     setConfirmandoId(null);
-    setEditandoId(categoria.id);
-    setNombreEditado(categoria.nombre);
+    setEditando({ id: categoria.id, nombre: categoria.nombre, padreId: categoria.padreId ?? "" });
   }
 
-  async function guardarEdicion(e, categoria) {
+  async function guardarEdicion(e) {
     e.preventDefault();
-    const editada = await pedirCambio(`/api/categorias/${categoria.id}`, "PUT", { nombre: nombreEditado });
+    const editada = await pedirCambio(`/api/categorias/${editando.id}`, "PUT", {
+      nombre: editando.nombre,
+      padreId: editando.padreId || null,
+    });
 
     if (editada) {
-      setCategorias((lista) => lista.map((c) => (c.id === editada.id ? { ...c, nombre: editada.nombre } : c)));
-      setEditandoId(null);
-      setAviso({ tipo: "ok", texto: `Categoría renombrada a "${editada.nombre}".` });
+      setEditando(null);
+      setAviso({ tipo: "ok", texto: `Categoría "${editada.nombre}" guardada.` });
     }
   }
 
@@ -84,9 +112,117 @@ function AdminCategorias({ onCategoriasCambiadas }) {
     setConfirmandoId(null);
 
     if (eliminada) {
-      setCategorias((lista) => lista.filter((c) => c.id !== categoria.id));
       setAviso({ tipo: "ok", texto: `Categoría "${categoria.nombre}" eliminada.` });
     }
+  }
+
+  function textoConfirmacion(categoria) {
+    const subcategorias = categoria.subcategorias ?? [];
+    const productos = categoria.productos + subcategorias.reduce((suma, sub) => suma + sub.productos, 0);
+    const partes = [
+      subcategorias.length > 0
+        ? `¿Eliminar "${categoria.nombre}" y ${subcategorias.length === 1 ? "su subcategoría" : `sus ${subcategorias.length} subcategorías`}?`
+        : `¿Eliminar "${categoria.nombre}"?`,
+    ];
+    if (productos > 0) partes.push(`${productos === 1 ? "Su producto queda" : `Sus ${productos} productos quedan`} sin categoría (no se borran).`);
+    return partes.join(" ");
+  }
+
+  function fila(categoria, padre) {
+    const enEdicion = editando?.id === categoria.id;
+    const tieneSubcategorias = (categoria.subcategorias ?? []).length > 0;
+    const enSubcategorias = (categoria.subcategorias ?? []).reduce((suma, sub) => suma + sub.productos, 0);
+
+    return (
+      <tr
+        key={categoria.id}
+        className={`${padre ? "fila-subcategoria" : ""} ${confirmandoId === categoria.id ? "confirmando" : ""}`}
+      >
+        <th scope="row">
+          {enEdicion ? (
+            <form className="edicion-categoria" onSubmit={guardarEdicion}>
+              <label className="solo-lector" htmlFor={`editar-nombre-${categoria.id}`}>Nombre</label>
+              <input
+                id={`editar-nombre-${categoria.id}`}
+                type="text"
+                maxLength={60}
+                value={editando.nombre}
+                onChange={(e) => setEditando({ ...editando, nombre: e.target.value })}
+                autoFocus
+                required
+              />
+              {!tieneSubcategorias && (
+                <>
+                  <label className="solo-lector" htmlFor={`editar-ubicacion-${categoria.id}`}>Dentro de</label>
+                  <SelectUbicacion
+                    id={`editar-ubicacion-${categoria.id}`}
+                    valor={editando.padreId}
+                    onCambiar={(padreId) => setEditando({ ...editando, padreId })}
+                    principales={arbol}
+                    excluir={categoria.id}
+                  />
+                </>
+              )}
+              <div className="acciones-fila">
+                <button type="submit" className="boton">Guardar</button>
+                <button type="button" className="boton boton-secundario" onClick={() => setEditando(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              {padre && (
+                <>
+                  <span className="marca-subcategoria" aria-hidden="true" />
+                  <span className="solo-lector">Subcategoría de {padre.nombre}: </span>
+                </>
+              )}
+              {categoria.nombre}
+            </>
+          )}
+        </th>
+        <td className="num">
+          {categoria.productos}
+          {enSubcategorias > 0 && <small className="detalle-cantidad">+{enSubcategorias} en subcategorías</small>}
+        </td>
+        <td>
+          {confirmandoId === categoria.id ? (
+            <div className="acciones-fila">
+              <span>{textoConfirmacion(categoria)}</span>
+              <button className="boton boton-peligro" onClick={() => eliminar(categoria)}>
+                Sí, eliminar
+              </button>
+              <button className="boton boton-secundario" onClick={() => setConfirmandoId(null)} autoFocus>
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            !enEdicion && (
+              <div className="acciones-fila">
+                <button
+                  className="boton boton-secundario"
+                  onClick={() => empezarEdicion(categoria)}
+                  aria-label={`Editar ${categoria.nombre}`}
+                >
+                  Editar
+                </button>
+                <button
+                  className="boton-quitar"
+                  onClick={() => {
+                    setEditando(null);
+                    setConfirmandoId(categoria.id);
+                  }}
+                  aria-label={`Eliminar ${categoria.nombre}`}
+                >
+                  Eliminar
+                </button>
+              </div>
+            )
+          )}
+        </td>
+      </tr>
+    );
   }
 
   return (
@@ -108,11 +244,21 @@ function AdminCategorias({ onCategoriasCambiadas }) {
             id="categoria-nueva"
             type="text"
             maxLength={60}
-            value={nueva}
-            onChange={(e) => setNueva(e.target.value)}
-            placeholder="Por ejemplo Hilos"
+            value={nueva.nombre}
+            onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })}
+            placeholder="Por ejemplo Hilos o Hilos gross"
             required
           />
+        </div>
+        <div className="campo">
+          <label htmlFor="categoria-ubicacion">Dentro de</label>
+          <SelectUbicacion
+            id="categoria-ubicacion"
+            valor={nueva.padreId}
+            onCambiar={(padreId) => setNueva({ ...nueva, padreId })}
+            principales={arbol}
+          />
+          <p className="nota">Para crear una subcategoría (por ejemplo Hilos gross), elegí en qué categoría va.</p>
         </div>
         <button type="submit" className="boton">Crear categoría</button>
       </form>
@@ -120,7 +266,9 @@ function AdminCategorias({ onCategoriasCambiadas }) {
       <section className="tarjeta">
         <div className="tabla-contenedor" role="region" aria-label="Lista de categorías" tabIndex={0}>
           <table>
-            <caption>Categorías ({categorias.length})</caption>
+            <caption>
+              Categorías ({arbol.length}) y subcategorías ({categorias.length - arbol.length})
+            </caption>
             <thead>
               <tr>
                 <th scope="col">Nombre</th>
@@ -141,71 +289,7 @@ function AdminCategorias({ onCategoriasCambiadas }) {
                 </tr>
               )}
 
-              {categorias.map((categoria) => (
-                <tr key={categoria.id} className={confirmandoId === categoria.id ? "confirmando" : ""}>
-                  <th scope="row">
-                    {editandoId === categoria.id ? (
-                      <form className="edicion-fila" onSubmit={(e) => guardarEdicion(e, categoria)}>
-                        <input
-                          type="text"
-                          maxLength={60}
-                          value={nombreEditado}
-                          onChange={(e) => setNombreEditado(e.target.value)}
-                          aria-label={`Nuevo nombre para ${categoria.nombre}`}
-                          autoFocus
-                          required
-                        />
-                        <button type="submit" className="boton">Guardar</button>
-                        <button type="button" className="boton boton-secundario" onClick={() => setEditandoId(null)}>
-                          Cancelar
-                        </button>
-                      </form>
-                    ) : (
-                      categoria.nombre
-                    )}
-                  </th>
-                  <td className="num">{categoria.productos}</td>
-                  <td>
-                    {confirmandoId === categoria.id ? (
-                      <div className="acciones-fila">
-                        <span>
-                          ¿Eliminar "{categoria.nombre}"?
-                          {categoria.productos === 1 && " Su producto queda sin categoría (no se borra)."}
-                          {categoria.productos > 1 && ` Sus ${categoria.productos} productos quedan sin categoría (no se borran).`}
-                        </span>
-                        <button className="boton boton-peligro" onClick={() => eliminar(categoria)}>
-                          Sí, eliminar
-                        </button>
-                        <button className="boton boton-secundario" onClick={() => setConfirmandoId(null)} autoFocus>
-                          Cancelar
-                        </button>
-                      </div>
-                    ) : (
-                      editandoId !== categoria.id && (
-                        <div className="acciones-fila">
-                          <button
-                            className="boton boton-secundario"
-                            onClick={() => empezarEdicion(categoria)}
-                            aria-label={`Renombrar ${categoria.nombre}`}
-                          >
-                            Renombrar
-                          </button>
-                          <button
-                            className="boton-quitar"
-                            onClick={() => {
-                              setEditandoId(null);
-                              setConfirmandoId(categoria.id);
-                            }}
-                            aria-label={`Eliminar ${categoria.nombre}`}
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      )
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {arbol.flatMap((categoria) => [fila(categoria, null), ...categoria.subcategorias.map((sub) => fila(sub, categoria))])}
             </tbody>
           </table>
         </div>
