@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import ProductoImagen from "./ProductoImagen";
-import { hayStock, textoPrecio } from "../variantes";
+import Precio from "./Precio";
+import { hayStock, textoPrecio, textoPrecioOriginal } from "../variantes";
 
 function ProductCard({ producto }) {
   const esDigital = producto.tipo === "digital";
@@ -13,9 +14,13 @@ function ProductCard({ producto }) {
         <h3>
           <Link to={`/producto/${producto.id}`} className="producto-link">{producto.nombre}</Link>
         </h3>
-        <p className="producto-precio">{textoPrecio(producto)}</p>
+        <Precio
+          className="producto-precio"
+          final={textoPrecio(producto)}
+          original={textoPrecioOriginal(producto)}
+          oferta={producto.oferta}
+        />
         <p className={`insignia ${esDigital ? "digital" : ""}`}>
-          <span aria-hidden="true">{esDigital ? "📄" : "📦"}</span>{" "}
           {esDigital ? "Descarga" : "Con envío"}
         </p>
         {!hayStock(producto) && <p className="insignia agotado">Sin stock</p>}

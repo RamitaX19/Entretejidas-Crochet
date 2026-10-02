@@ -839,3 +839,8 @@ button.chip { font: inherit; cursor: pointer; }
 }
 /* Lugar al final de la página para que el botón no tape los links del pie. */
 .sitio:has(.boton-whatsapp) .pie-legal-contenido { padding-bottom: 5.5rem; }
+
+/* ---------- Ofertas: precio de lista tachado y abajo el que se cobra ---------- */
+.precio-con-oferta { display: flex; flex-direction: column; gap: 0.125rem; }
+.precio-anterior { color: var(--tinta-suave); font-size: 0.8em; font-weight: 400; text-decoration-thickness: 1.5px; }
+.precio-final { color: var(--hilo-rojo); }

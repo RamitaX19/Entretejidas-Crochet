@@ -168,8 +168,18 @@ function validarVariantes(opcionesCrudas, variantesCrudas) {
   return { opciones, variantes };
 }
 
+const OFERTA_MAXIMA = 90;
+
+// Precio con la oferta del producto (porcentaje), redondeado a pesos y nunca menor a $1.
+// La tienda hace la misma cuenta para mostrarlo (precioConOferta en src/variantes.js).
+function precioConOferta(precio, oferta) {
+  if (!oferta) return precio;
+  return Math.max(1, Math.round((precio * (100 - oferta)) / 100));
+}
+
 function validarProducto(datos = {}) {
   const { nombre, precio, tipo, descripcion, stock = null, categoriaId = null } = datos;
+  const oferta = vacio(datos.oferta) ? 0 : Number(datos.oferta);
 
   if (!nombre || !precio || !tipo) {
     return { error: "Faltan datos" };
@@ -181,6 +191,10 @@ function validarProducto(datos = {}) {
 
   if (tipo !== "fisico" && tipo !== "digital") {
     return { error: "El tipo tiene que ser físico o digital" };
+  }
+
+  if (!Number.isInteger(oferta) || oferta < 0 || oferta > OFERTA_MAXIMA) {
+    return { error: `El descuento tiene que ser un porcentaje entero, de 0 a ${OFERTA_MAXIMA}` };
   }
 
   const categoria = vacio(categoriaId) ? null : Number(categoriaId);
@@ -207,6 +221,7 @@ function validarProducto(datos = {}) {
     producto: {
       nombre,
       precio: Number(precio),
+      oferta,
       tipo,
       descripcion: descripcion || "",
       stock: llevaStock ? Number(stock) : null,
@@ -218,7 +233,7 @@ function validarProducto(datos = {}) {
 }
 
 const SELECT_PRODUCTOS = `
-  SELECT p.id, p.nombre, p.precio, p.tipo, p.descripcion, p.stock, p.opciones,
+  SELECT p.id, p.nombre, p.precio, p.oferta, p.tipo, p.descripcion, p.stock, p.opciones,
     p.categoria_id AS "categoriaId", c.nombre AS categoria,
     c.padre_id AS "categoriaPadreId", cp.nombre AS "categoriaPadre",
     p.archivo_nombre AS "archivoNombre",
@@ -281,15 +296,15 @@ app.post("/api/productos", verificarToken, verificarAdmin, async (req, res) => {
     return res.status(400).json({ error: validacion.error });
   }
 
-  const { nombre, precio, tipo, descripcion, stock, categoriaId, opciones, variantes } = validacion.producto;
+  const { nombre, precio, oferta, tipo, descripcion, stock, categoriaId, opciones, variantes } = validacion.producto;
   const cliente = await pool.connect();
 
   try {
     await cliente.query("BEGIN");
     const resultado = await cliente.query(
-      `INSERT INTO productos (nombre, precio, tipo, descripcion, stock, categoria_id, opciones)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-      [nombre, precio, tipo, descripcion, stock, categoriaId, JSON.stringify(opciones)]
+      `INSERT INTO productos (nombre, precio, tipo, descripcion, stock, categoria_id, opciones, oferta)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [nombre, precio, tipo, descripcion, stock, categoriaId, JSON.stringify(opciones), oferta]
     );
     await guardarVariantes(cliente, resultado.rows[0].id, variantes);
     await cliente.query("COMMIT");
@@ -314,16 +329,16 @@ app.put("/api/productos/:id", verificarToken, verificarAdmin, async (req, res) =
     return res.status(400).json({ error: validacion.error });
   }
 
-  const { nombre, precio, tipo, descripcion, stock, categoriaId, opciones, variantes } = validacion.producto;
+  const { nombre, precio, oferta, tipo, descripcion, stock, categoriaId, opciones, variantes } = validacion.producto;
   const cliente = await pool.connect();
 
   try {
     await cliente.query("BEGIN");
     const resultado = await cliente.query(
       `UPDATE productos SET nombre = $1, precio = $2, tipo = $3, descripcion = $4, stock = $5,
-         categoria_id = $6, opciones = $7
-       WHERE id = $8 RETURNING id`,
-      [nombre, precio, tipo, descripcion, stock, categoriaId, JSON.stringify(opciones), id]
+         categoria_id = $6, opciones = $7, oferta = $8
+       WHERE id = $9 RETURNING id`,
+      [nombre, precio, tipo, descripcion, stock, categoriaId, JSON.stringify(opciones), oferta, id]
     );
 
     if (resultado.rows.length === 0) {
@@ -1021,7 +1036,7 @@ app.post("/api/pedidos", verificarToken, async (req, res) => {
 
   try {
     const resultadoProductos = await cliente.query(
-      "SELECT id, nombre, precio, tipo, stock, opciones FROM productos WHERE id = ANY($1)",
+      "SELECT id, nombre, precio, oferta, tipo, stock, opciones FROM productos WHERE id = ANY($1)",
       [ids],
     );
     const productosDB = resultadoProductos.rows;
@@ -1090,7 +1105,8 @@ app.post("/api/pedidos", verificarToken, async (req, res) => {
         etiqueta,
         nombre,
         cantidad,
-        precio: variante?.precio ?? producto.precio,
+        // Se cobra el precio con la oferta del producto (también en las variantes con precio propio).
+        precio: precioConOferta(variante?.precio ?? producto.precio, producto.oferta),
         descontarStock,
       });
     }

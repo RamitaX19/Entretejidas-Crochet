@@ -6,7 +6,18 @@ import AdminNav from "../components/AdminNav";
 import EditorVariantes from "../components/EditorVariantes";
 import { achicarImagen } from "../imagenes";
 import { opcionesDeCategorias, rutaDeCategoria } from "../categorias";
-import { COMBINACION_NUEVA, claveCombinacion, combinar, limpiarOpciones, nuevaOpcion, tieneVariantes } from "../variantes";
+import {
+  COMBINACION_NUEVA,
+  claveCombinacion,
+  combinar,
+  limpiarOpciones,
+  nuevaOpcion,
+  pesos,
+  precioConOferta,
+  tieneVariantes,
+} from "../variantes";
+
+const OFERTA_MAXIMA = 90;
 
 const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/webp"];
 const TAMANO_MAXIMO = 5 * 1024 * 1024;
@@ -17,6 +28,7 @@ const TAMANO_MAXIMO_DIGITAL = 25 * 1024 * 1024;
 function AdminPanel({ productos, setProductos, categorias }) {
   const [nombre, setNombre] = useState("");
   const [precio, setPrecio] = useState("");
+  const [oferta, setOferta] = useState("");
   const [tipo, setTipo] = useState("fisico");
   const [descripcion, setDescripcion] = useState("");
   const [stock, setStock] = useState("");
@@ -59,6 +71,7 @@ function AdminPanel({ productos, setProductos, categorias }) {
   function limpiarFormulario() {
     setNombre("");
     setPrecio("");
+    setOferta("");
     setTipo("fisico");
     setDescripcion("");
     setStock("");
@@ -80,6 +93,21 @@ function AdminPanel({ productos, setProductos, categorias }) {
         precio: datos.precio === "" ? null : Number(datos.precio),
         stock: datos.stock === "" ? null : Number(datos.stock),
       }));
+  }
+
+  // Ayuda debajo del descuento: cómo queda el precio.
+  function textoDeOferta() {
+    const porcentaje = Number(oferta);
+    const base = Number(precio);
+
+    if (oferta === "" || porcentaje === 0) return `Dejalo vacío si no tiene descuento. Hasta ${OFERTA_MAXIMA}%.`;
+    if (!Number.isInteger(porcentaje) || porcentaje < 0 || porcentaje > OFERTA_MAXIMA) {
+      return `Tiene que ser un número entero, de 0 a ${OFERTA_MAXIMA}.`;
+    }
+    if (!Number.isInteger(base) || base < 1) return `${porcentaje}% de descuento.`;
+
+    const variantes = conVariantes ? " Se aplica también a cada variante." : "";
+    return `Se vende a ${pesos(precioConOferta(base, porcentaje))} en vez de ${pesos(base)}.${variantes}`;
   }
 
   async function elegirArchivos(e) {
@@ -189,6 +217,7 @@ function AdminPanel({ productos, setProductos, categorias }) {
         body: JSON.stringify({
           nombre,
           precio: Number(precio),
+          oferta: oferta === "" ? 0 : Number(oferta),
           tipo,
           descripcion,
           categoriaId: categoriaId === "" ? null : Number(categoriaId),
@@ -286,6 +315,7 @@ function AdminPanel({ productos, setProductos, categorias }) {
     setEditandoId(producto.id);
     setNombre(producto.nombre);
     setPrecio(producto.precio);
+    setOferta(producto.oferta ? String(producto.oferta) : "");
     setTipo(producto.tipo);
     setDescripcion(producto.descripcion || "");
     setStock(producto.stock ?? "");
@@ -370,6 +400,22 @@ function AdminPanel({ productos, setProductos, categorias }) {
             onChange={(e) => setPrecio(e.target.value)}
             required
           />
+        </div>
+
+        <div className="campo">
+          <label htmlFor="prod-oferta">Descuento (%)</label>
+          <input
+            id="prod-oferta"
+            type="number"
+            min="0"
+            max={OFERTA_MAXIMA}
+            step="1"
+            placeholder="Sin descuento"
+            value={oferta}
+            onChange={(e) => setOferta(e.target.value)}
+            aria-describedby="ayuda-oferta"
+          />
+          <p id="ayuda-oferta" className="nota">{textoDeOferta()}</p>
         </div>
 
         <div className="campo">
@@ -573,7 +619,17 @@ function AdminPanel({ productos, setProductos, categorias }) {
                       ? producto.archivoNombre ? "Digital" : "Digital (sin archivo)"
                       : "Físico"}
                   </td>
-                  <td className="num">${producto.precio.toLocaleString("es-AR")}</td>
+                  <td className="num">
+                    {producto.oferta > 0 ? (
+                      <>
+                        <s className="precio-anterior">{pesos(producto.precio)}</s>{" "}
+                        {pesos(precioConOferta(producto.precio, producto.oferta))}
+                        <small className="detalle-cantidad">{producto.oferta}% de descuento</small>
+                      </>
+                    ) : (
+                      pesos(producto.precio)
+                    )}
+                  </td>
                   <td className="num">
                     {producto.tipo === "digital"
                       ? "—"

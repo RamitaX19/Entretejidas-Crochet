@@ -8,8 +8,25 @@ export function etiquetaVariante(producto, variante) {
   return producto.opciones.map((opcion) => `${opcion.nombre}: ${variante.valores[opcion.nombre]}`).join(" · ");
 }
 
-export function precioDe(producto, variante) {
+export function pesos(monto) {
+  return `$${monto.toLocaleString("es-AR")}`;
+}
+
+// Precio con la oferta del producto (porcentaje), redondeado a pesos y nunca menor a $1.
+// El backend hace la misma cuenta al cobrar (precioConOferta en index.js).
+export function precioConOferta(precio, oferta) {
+  if (!oferta) return precio;
+  return Math.max(1, Math.round((precio * (100 - oferta)) / 100));
+}
+
+// Precio de lista, sin la oferta.
+export function precioOriginalDe(producto, variante) {
   return variante?.precio ?? producto.precio;
+}
+
+// Precio que se cobra: con la oferta, si el producto tiene.
+export function precioDe(producto, variante) {
+  return precioConOferta(precioOriginalDe(producto, variante), producto.oferta);
 }
 
 export function stockDe(producto, variante) {
@@ -21,15 +38,23 @@ export function claveCarrito(productoId, variante) {
   return variante ? `${productoId}-${variante.id}` : String(productoId);
 }
 
-// Los precios a los que se vende: uno por variante (vacío usa el del producto) o el del producto.
-export function preciosDe(producto) {
+// Los precios de lista: uno por variante (vacío usa el del producto) o el del producto.
+function preciosOriginalesDe(producto) {
   if (!tieneVariantes(producto) || producto.variantes.length === 0) return [producto.precio];
   return producto.variantes.map((variante) => variante.precio ?? producto.precio);
 }
 
-export function rangoPrecios(producto) {
-  const precios = preciosDe(producto);
+// Los precios que se cobran (con la oferta): con estos se filtra y se ordena.
+export function preciosDe(producto) {
+  return preciosOriginalesDe(producto).map((precio) => precioConOferta(precio, producto.oferta));
+}
+
+function rango(precios) {
   return { minimo: Math.min(...precios), maximo: Math.max(...precios) };
+}
+
+export function rangoPrecios(producto) {
+  return rango(preciosDe(producto));
 }
 
 export function hayStock(producto) {
@@ -38,11 +63,18 @@ export function hayStock(producto) {
   return producto.variantes.some((variante) => variante.stock !== 0);
 }
 
-// "$1.500" o "Desde $1.200" si las variantes tienen precios distintos.
+function textoDeRango({ minimo, maximo }) {
+  return minimo === maximo ? pesos(minimo) : `Desde ${pesos(minimo)}`;
+}
+
+// "$1.500" o "Desde $1.200" si las variantes tienen precios distintos (ya con la oferta).
 export function textoPrecio(producto) {
-  const { minimo, maximo } = rangoPrecios(producto);
-  const precio = `$${minimo.toLocaleString("es-AR")}`;
-  return minimo === maximo ? precio : `Desde ${precio}`;
+  return textoDeRango(rangoPrecios(producto));
+}
+
+// Lo mismo, pero con el precio de lista: es el que se muestra tachado.
+export function textoPrecioOriginal(producto) {
+  return textoDeRango(rango(preciosOriginalesDe(producto)));
 }
 
 // Datos de una combinación que el admin todavía no tocó: se vende, con el precio y el stock por defecto.

@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import Galeria from "../components/Galeria";
-import { claveCarrito, precioDe, rangoPrecios, tieneVariantes } from "../variantes";
+import Precio from "./Precio";
+import {
+  claveCarrito,
+  pesos,
+  precioDe,
+  precioOriginalDe,
+  textoPrecio,
+  textoPrecioOriginal,
+  tieneVariantes,
+} from "../variantes";
 import { linkDeCategoria } from "../categorias";
 
 function ProductoDetalle(props) {
@@ -54,7 +63,9 @@ function DetalleDelProducto({ id, productos, carrito, cargando, agregarAlCarrito
   const stock = conVariantes ? variante?.stock ?? null : producto.stock;
   const disponibles = stock === null ? Infinity : stock - enCarrito;
   const sePuedeAgregar = !conVariantes || variante !== null;
-  const { minimo, maximo } = rangoPrecios(producto);
+  // Con una variante elegida, su precio; si no, el del producto ("Desde $..." si las variantes cambian).
+  const precioFinal = variante ? pesos(precioDe(producto, variante)) : textoPrecio(producto);
+  const precioOriginal = variante ? pesos(precioOriginalDe(producto, variante)) : textoPrecioOriginal(producto);
 
   // ¿Hay alguna combinación con stock con este valor y lo que ya se eligió en las otras opciones?
   function valorDisponible(opcion, valor) {
@@ -85,10 +96,6 @@ function DetalleDelProducto({ id, productos, carrito, cargando, agregarAlCarrito
     setCantidad(1);
   }
 
-  let textoPrecio = `$${minimo.toLocaleString("es-AR")}`;
-  if (variante) textoPrecio = `$${precioDe(producto, variante).toLocaleString("es-AR")}`;
-  else if (minimo !== maximo) textoPrecio = `Desde $${minimo.toLocaleString("es-AR")}`;
-
   return (
     <main className="detalle">
       <Link to="/" className="volver">
@@ -117,7 +124,9 @@ function DetalleDelProducto({ id, productos, carrito, cargando, agregarAlCarrito
             {esDigital ? "Descarga digital" : "Envío a domicilio"}
           </p>
 
-          <p className="detalle-precio" aria-live="polite">{textoPrecio}</p>
+          <div aria-live="polite">
+            <Precio className="detalle-precio" final={precioFinal} original={precioOriginal} oferta={producto.oferta} />
+          </div>
 
           {producto.descripcion && (
             <p className="detalle-descripcion">{producto.descripcion}</p>
