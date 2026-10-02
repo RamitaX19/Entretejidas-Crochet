@@ -91,10 +91,10 @@ function Banner({ diapositivas = DIAPOSITIVAS }) {
             inert={i !== actual}
           >
             {diapositiva.imagen && (
-              <img className="banner-imagen" src={diapositiva.imagen} alt="" loading={i === 0 ? "eager" : "lazy"} />
+              <img className="banner-imagen" src={diapositiva.imagen} alt={diapositiva.alt ?? ""} loading={i === 0 ? "eager" : "lazy"} />
             )}
             <div className="banner-contenido">
-              <h2>{diapositiva.titulo}</h2>
+              {diapositiva.titulo && <h2>{diapositiva.titulo}</h2>}
               {diapositiva.texto && <p>{diapositiva.texto}</p>}
               {diapositiva.boton && diapositiva.link && (
                 <Link to={diapositiva.link} className="boton boton-banner">{diapositiva.boton}</Link>
@@ -116,7 +116,7 @@ function Banner({ diapositivas = DIAPOSITIVAS }) {
                 type="button"
                 className="banner-punto"
                 onClick={() => ir(i)}
-                aria-label={`Ir a la diapositiva ${i + 1}: ${diapositiva.titulo}`}
+                aria-label={`Ir a la diapositiva ${i + 1}`}
                 aria-current={i === actual ? "true" : undefined}
               />
             ))}

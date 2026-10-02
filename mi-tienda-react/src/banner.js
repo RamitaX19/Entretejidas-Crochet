@@ -5,11 +5,10 @@
 //   o "/productos?categoria=3" (el número de una categoría es el que aparece en la dirección al elegirla).
 export const DIAPOSITIVAS = [
   {
-    titulo: "Entretejidas",
-    texto: "Hilos, telas, moldes y proyectos para tejer y coser, todo en un solo lugar.",
     boton: "Ver todos los productos",
     link: "/productos",
-    fondo: "denim",
+    imagen: "/entretejidas-banner.webp",
+    alt: "Entretejidas: Hilos, telas, moldes y proyectos para tejer y coser, todo en un solo lugar.",
   },
   {
     titulo: "Nuestros hilos",
