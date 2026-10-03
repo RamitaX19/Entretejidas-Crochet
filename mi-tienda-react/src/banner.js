@@ -11,17 +11,15 @@ export const DIAPOSITIVAS = [
     alt: "Entretejidas: Hilos, telas, moldes y proyectos para tejer y coser, todo en un solo lugar.",
   },
   {
-    titulo: "Nuestros hilos",
-    texto: "Texto de ejemplo: lo cambiamos cuando tengas las fotos y las promociones.",
-    boton: "Ver hilos",
-    link: "/productos?q=hilo",
-    fondo: "cinta",
-  },
-  {
-    titulo: "Lanas de temporada",
-    texto: "Texto de ejemplo: lo cambiamos cuando tengas las fotos y las promociones.",
     boton: "Ver lanas",
     link: "/productos?q=lana",
-    fondo: "rojo",
+    imagen: "/lanas-merceria.webp",
+    alt: "Lanas y mercería: suaves, resistentes y de colores variados, ideales para tus proyectos de tejido y costura.",
+  },
+  {
+    boton: "Ver lanas",
+    link: "/productos?q=lana",
+    imagen: "/accesorios-merceria.webp",
+    alt: "Accesorios de mercería: hilos, agujas, ganchillos, lanas, cintas y accesorios para tejer y coser.",
   },
 ];
