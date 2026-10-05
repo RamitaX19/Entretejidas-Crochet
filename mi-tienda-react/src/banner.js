@@ -18,7 +18,7 @@ export const DIAPOSITIVAS = [
     texto: "Suaves, resistentes y en una gran variedad de colores para que tus ideas cobren vida.",
     boton: "Ver lanas",
     link: "/productos?q=lana",
-    imagen: "/entretejidas-banner.webp",
+    imagen: "/lanas.webp",
     alt: "Lanas y mercería: suaves, resistentes y de colores variados, ideales para tus proyectos de tejido y costura.",
   },
   {
@@ -26,7 +26,7 @@ export const DIAPOSITIVAS = [
     texto: "Botones, cierres, elásticos y todo lo que necesitás para darle forma a tus ideas.",
     boton: "Ver accesorios",
     link: "/productos?q=accesorios",
-    imagen: "/accesorios-merceria.webp",
+    imagen: "/accesorios.webp",
     alt: "Accesorios de mercería: hilos, agujas, ganchillos, lanas, cintas y accesorios para tejer y coser.",
   },
 ];
