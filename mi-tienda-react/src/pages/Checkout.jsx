@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { API_URL } from "../config";
-import { pedirApi } from "../api";
+import { leerJson, pedirApi } from "../api";
 import { etiquetaVariante, precioDe } from "../variantes";
 
 function Checkout({ carrito, usuario, onPedidoCreado, onAbrirAuth }) {
@@ -9,6 +9,9 @@ function Checkout({ carrito, usuario, onPedidoCreado, onAbrirAuth }) {
   const [medios, setMedios] = useState(null);
   const [metodoPago, setMetodoPago] = useState("");
   const [entrega, setEntrega] = useState("envio");
+  // Tipos de envío y precios por provincia (los define el backend en envios.js).
+  const [envios, setEnvios] = useState(null);
+  const [tipoEnvio, setTipoEnvio] = useState("clasico");
   const [formulario, setFormulario] = useState({
     destinatario: usuario?.nombre ?? "",
     telefono: "",
@@ -38,6 +41,16 @@ function Checkout({ carrito, usuario, onPedidoCreado, onAbrirAuth }) {
       });
   }, []);
 
+  useEffect(() => {
+    fetch(`${API_URL}/api/envios`)
+      .then(leerJson)
+      .then(setEnvios)
+      .catch((err) => {
+        console.error(err);
+        setEnvios({ tipos: [], provincias: [] });
+      });
+  }, []);
+
   if (!usuario) {
     return (
       <main className="checkout">
@@ -60,13 +73,21 @@ function Checkout({ carrito, usuario, onPedidoCreado, onAbrirAuth }) {
     );
   }
 
-  const subtotal = carrito.reduce((suma, item) => suma + precioDe(item, item.variante) * item.cantidad, 0);
-  // Mismo redondeo que el backend, que igual recalcula todo al crear el pedido.
-  const descuento = cupon ? Math.round((subtotal * cupon.porcentaje) / 100) : 0;
-  const total = subtotal - descuento;
-  const gratis = total === 0;
   const hayFisicos = carrito.some((item) => item.tipo !== "digital");
   const hayDigitales = carrito.some((item) => item.tipo === "digital");
+  const conEnvio = hayFisicos && entrega === "envio";
+  const preciosEnvio = envios?.provincias.find((provincia) => provincia.nombre === formulario.provincia)?.precios;
+  // Con envío a domicilio, el precio se sabe recién cuando eligen la provincia.
+  const envioPendiente = conEnvio && !preciosEnvio;
+  const costoEnvio = conEnvio && preciosEnvio ? preciosEnvio[tipoEnvio] : 0;
+  const nombreEnvio = envios?.tipos.find((tipo) => tipo.id === tipoEnvio)?.nombre.toLowerCase();
+
+  const subtotal = carrito.reduce((suma, item) => suma + precioDe(item, item.variante) * item.cantidad, 0);
+  // Mismo redondeo que el backend, que igual recalcula todo al crear el pedido.
+  // El cupón descuenta solo de los productos; el envío se cobra entero.
+  const descuento = cupon ? Math.round((subtotal * cupon.porcentaje) / 100) : 0;
+  const total = subtotal - descuento + costoEnvio;
+  const gratis = total === 0 && !envioPendiente;
   const sinMedios = medios && !medios.transferencia && !medios.mercadoPago;
 
   function cambiarCampo(e) {
@@ -116,6 +137,7 @@ function Checkout({ carrito, usuario, onPedidoCreado, onAbrirAuth }) {
           metodoPago,
           cupon: cupon?.codigo,
           entrega: hayFisicos ? entrega : null,
+          tipoEnvio: conEnvio ? tipoEnvio : null,
           ...formulario,
         }),
       });
@@ -223,8 +245,26 @@ function Checkout({ carrito, usuario, onPedidoCreado, onAbrirAuth }) {
             </div>
           )}
 
-          <p className="resumen-total">Total: ${total.toLocaleString("es-AR")}</p>
-          {hayFisicos && <p className="nota">El costo del envío se coordina aparte y no está incluido.</p>}
+          {conEnvio && (
+            <p className="resumen-item">
+              {envioPendiente ? (
+                <>
+                  <span>Envío</span>
+                  <span>Según tu provincia</span>
+                </>
+              ) : (
+                <>
+                  <span>Envío {nombreEnvio} a {formulario.provincia}</span>
+                  <span>${costoEnvio.toLocaleString("es-AR")}</span>
+                </>
+              )}
+            </p>
+          )}
+
+          <p className="resumen-total">
+            Total: ${total.toLocaleString("es-AR")}
+            {envioPendiente && " + envío"}
+          </p>
           {hayDigitales && (
             <p className="nota">Los productos digitales se descargan desde "Mis pedidos" cuando se acredita el pago.</p>
           )}
@@ -320,16 +360,21 @@ function Checkout({ carrito, usuario, onPedidoCreado, onAbrirAuth }) {
 
                   <div className="campo">
                     <label htmlFor="checkout-provincia">Provincia</label>
-                    <input
+                    <select
                       id="checkout-provincia"
                       name="provincia"
-                      type="text"
                       autoComplete="address-level1"
-                      maxLength={100}
                       value={formulario.provincia}
                       onChange={cambiarCampo}
                       required
-                    />
+                    >
+                      <option value="">Elegí tu provincia</option>
+                      {envios?.provincias.map((provincia) => (
+                        <option key={provincia.nombre} value={provincia.nombre}>
+                          {provincia.nombre}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="campo">
@@ -349,6 +394,41 @@ function Checkout({ carrito, usuario, onPedidoCreado, onAbrirAuth }) {
               ) : (
                 <p className="nota">Te contactamos por teléfono para coordinar el día y el lugar de retiro.</p>
               )}
+            </fieldset>
+          </section>
+        )}
+
+        {conEnvio && (
+          <section className="tarjeta">
+            <fieldset>
+              <legend>Envío por Correo Argentino</legend>
+
+              {!envios && <p role="status">Cargando envíos...</p>}
+              {envios?.tipos.length === 0 && (
+                <p role="alert" className="mensaje-error">No se pudieron cargar los envíos. Recargá la página.</p>
+              )}
+              {envios?.tipos.length > 0 && envioPendiente && (
+                <p className="nota">Elegí tu provincia para ver el precio del envío.</p>
+              )}
+
+              <div className="opciones">
+                {envios?.tipos.map((tipo) => (
+                  <label key={tipo.id} className="opcion">
+                    <input
+                      type="radio"
+                      name="tipoEnvio"
+                      value={tipo.id}
+                      checked={tipoEnvio === tipo.id}
+                      onChange={(e) => setTipoEnvio(e.target.value)}
+                    />
+                    <span>
+                      {tipo.nombre}
+                      {preciosEnvio && ` · $${preciosEnvio[tipo.id].toLocaleString("es-AR")}`}
+                      <small>Demora {tipo.plazo}.</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
             </fieldset>
           </section>
         )}
@@ -401,7 +481,7 @@ function Checkout({ carrito, usuario, onPedidoCreado, onAbrirAuth }) {
         <button type="submit" className="boton" disabled={enviando || (!gratis && !metodoPago)}>
           {enviando
             ? "Confirmando..."
-            : gratis
+            : gratis || envioPendiente
               ? "Confirmar pedido"
               : `Confirmar pedido por $${total.toLocaleString("es-AR")}`}
         </button>

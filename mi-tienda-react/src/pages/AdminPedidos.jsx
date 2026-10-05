@@ -124,6 +124,9 @@ function AdminPedidos({ onStockCambiado }) {
                 Cupón {pedido.cupon}: −${pedido.descuento.toLocaleString("es-AR")}
               </p>
             )}
+            {pedido.costoEnvio > 0 && (
+              <p className="pedido-envio">Envío: ${pedido.costoEnvio.toLocaleString("es-AR")}</p>
+            )}
             <p className="pedido-total">
               Total: ${pedido.total.toLocaleString("es-AR")} ·{" "}
               {pedido.total === 0 ? "Cubierto por el cupón" : nombreMetodoPago(pedido.metodoPago)}

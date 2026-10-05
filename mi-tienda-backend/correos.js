@@ -1,6 +1,7 @@
 // Correos a los clientes con Resend: pedido recibido, cambios de estado y botón de arrepentimiento.
 // Sin RESEND_API_KEY no se manda nada. Un correo que falla nunca corta la tienda: queda anotado en el log.
 const { Resend } = require("resend");
+const envios = require("./envios");
 
 const TIENDA = "Entretejidas";
 // Sin un dominio propio verificado en Resend solo se puede mandar desde onboarding@resend.dev,
@@ -92,8 +93,11 @@ function detalle(pedido) {
     importe: item.cantidad * item.precioUnitario,
   }));
   const subtotal = renglones.reduce((suma, renglon) => suma + renglon.importe, 0);
-  const totales = pedido.descuento > 0
-    ? [["Subtotal", pesos(subtotal)], [`Cupón ${pedido.cupon}`, `−${pesos(pedido.descuento)}`], ["Total", pesos(pedido.total)]]
+  const cupon = pedido.descuento > 0 ? [[`Cupón ${pedido.cupon}`, `−${pesos(pedido.descuento)}`]] : [];
+  const tipo = envios.tipoEnvio(pedido.tipoEnvio);
+  const envio = pedido.costoEnvio > 0 ? [[tipo ? `Envío ${tipo.nombre.toLowerCase()}` : "Envío", pesos(pedido.costoEnvio)]] : [];
+  const totales = cupon.length > 0 || envio.length > 0
+    ? [["Subtotal", pesos(subtotal)], ...cupon, ...envio, ["Total", pesos(pedido.total)]]
     : [["Total", pesos(pedido.total)]];
   const celda = `padding:6px 0;border-bottom:1px solid ${LINEA}`;
 
@@ -114,7 +118,13 @@ function entrega(pedido) {
   if (pedido.entrega === "envio") {
     const direccion = [pedido.direccion, pedido.ciudad, pedido.provincia].filter(Boolean).join(", ");
     const cp = pedido.codigoPostal ? ` (CP ${pedido.codigoPostal})` : "";
-    return parrafo(`Envío a domicilio: ${direccion}${cp}. El costo del envío se coordina aparte.`);
+    const tipo = envios.tipoEnvio(pedido.tipoEnvio);
+    // Los pedidos de antes de los envíos por Correo Argentino no tienen tipo: su envío se coordinaba aparte.
+    return parrafo(
+      tipo
+        ? `Envío ${tipo.nombre.toLowerCase()} por Correo Argentino (${tipo.plazo}) a ${direccion}${cp}.`
+        : `Envío a domicilio: ${direccion}${cp}. El costo del envío se coordina aparte.`,
+    );
   }
 
   if (pedido.entrega === "retiro") {

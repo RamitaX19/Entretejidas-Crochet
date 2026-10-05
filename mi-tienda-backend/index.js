@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const { verificarToken, verificarAdmin } = require("./auth");
 const mercadoPago = require("./mercadopago");
 const correos = require("./correos");
+const envios = require("./envios");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -907,6 +908,8 @@ function validarEntrega(datos, hayFisicos) {
     ciudad: null,
     provincia: null,
     codigoPostal: null,
+    tipoEnvio: null,
+    costoEnvio: 0,
   };
 
   if (!hayFisicos) return { entrega };
@@ -932,6 +935,20 @@ function validarEntrega(datos, hayFisicos) {
     if (!entrega.direccion || !entrega.ciudad || !entrega.provincia || !entrega.codigoPostal) {
       return { error: "Completá la dirección de envío" };
     }
+
+    if (!envios.esProvincia(entrega.provincia)) {
+      return { error: "Elegí tu provincia de la lista" };
+    }
+
+    // El precio sale de la tabla de envios.js, nunca de lo que manda el navegador.
+    const costo = envios.costoEnvio(entrega.provincia, datos.tipoEnvio);
+
+    if (costo === null) {
+      return { error: "Elegí el envío clásico o el express" };
+    }
+
+    entrega.tipoEnvio = datos.tipoEnvio;
+    entrega.costoEnvio = costo;
   }
 
   return { entrega };
@@ -941,7 +958,8 @@ const SELECT_PEDIDOS = `
   SELECT pe.id, pe.usuario_id AS "usuarioId", pe.total, pe.estado,
     pe.metodo_pago AS "metodoPago", pe.creado_en AS "creadoEn",
     pe.entrega, pe.destinatario, pe.telefono, pe.direccion, pe.ciudad, pe.provincia,
-    pe.codigo_postal AS "codigoPostal", pe.cupon, pe.descuento, u.nombre AS cliente, u.email,
+    pe.codigo_postal AS "codigoPostal", pe.tipo_envio AS "tipoEnvio", pe.costo_envio AS "costoEnvio",
+    pe.cupon, pe.descuento, u.nombre AS cliente, u.email,
     json_agg(json_build_object(
       'id', pi.id,
       'productoId', pi.producto_id,
@@ -1021,6 +1039,10 @@ app.get("/api/pagos", (req, res) => {
     mercadoPago: mercadoPago.configurado(),
     clavePublicaMercadoPago: mercadoPago.configurado() ? mercadoPago.clavePublica() : null,
   });
+});
+
+app.get("/api/envios", (req, res) => {
+  res.json(envios.opciones());
 });
 
 app.post("/api/pedidos", verificarToken, async (req, res) => {
@@ -1137,9 +1159,10 @@ app.post("/api/pedidos", verificarToken, async (req, res) => {
       cupon = revision.cupon;
     }
 
+    // El cupón descuenta solo de los productos; el envío se cobra entero.
     const descuento = cupon ? Math.round((subtotal * cupon.porcentaje) / 100) : 0;
-    const total = subtotal - descuento;
-    // Si el cupón cubre todo, no hay nada que cobrar: el pedido nace pagado.
+    const total = subtotal - descuento + entrega.costoEnvio;
+    // Si el cupón cubre todo y no hay envío que pagar, no hay nada que cobrar: el pedido nace pagado.
     const gratis = total === 0;
 
     if (!gratis && !medioDisponible(metodoPago)) {
@@ -1149,8 +1172,8 @@ app.post("/api/pedidos", verificarToken, async (req, res) => {
     await cliente.query("BEGIN");
 
     const resultadoPedido = await cliente.query(
-      `INSERT INTO pedidos (usuario_id, total, estado, metodo_pago, cupon, descuento, entrega, destinatario, telefono, direccion, ciudad, provincia, codigo_postal)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+      `INSERT INTO pedidos (usuario_id, total, estado, metodo_pago, cupon, descuento, entrega, destinatario, telefono, direccion, ciudad, provincia, codigo_postal, tipo_envio, costo_envio)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
       [
         req.usuario.id,
         total,
@@ -1165,6 +1188,8 @@ app.post("/api/pedidos", verificarToken, async (req, res) => {
         entrega.ciudad,
         entrega.provincia,
         entrega.codigoPostal,
+        entrega.tipoEnvio,
+        entrega.costoEnvio,
       ],
     );
 

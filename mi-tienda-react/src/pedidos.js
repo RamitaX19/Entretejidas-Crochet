@@ -17,6 +17,16 @@ export function nombreEstado(estado, entrega) {
   return NOMBRES_ESTADO[estado];
 }
 
+const NOMBRES_TIPO_ENVIO = {
+  clasico: "clásico",
+  express: "express",
+};
+
+// Los pedidos de antes de los envíos por Correo Argentino no tienen tipo de envío.
+export function nombreTipoEnvio(tipo) {
+  return NOMBRES_TIPO_ENVIO[tipo] ?? null;
+}
+
 export function nombreMetodoPago(metodo) {
   if (metodo === "transferencia") return "Transferencia";
   if (metodo === "mercadopago") return "Mercado Pago";

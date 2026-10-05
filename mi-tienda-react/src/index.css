@@ -479,7 +479,7 @@ tr.confirmando th, tr.confirmando td { background: #fdecea; }
 .estado-enviado { background: #e9eef5; color: var(--denim); border-color: var(--denim); }
 .estado-entregado { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
 .estado-cancelado { background: #f1f2f4; color: var(--tinta-suave); border-color: var(--linea); }
-.pedido-descuento { color: var(--tinta-suave); }
+.pedido-descuento, .pedido-envio { color: var(--tinta-suave); }
 
 @media (min-width: 800px) {
   .pedidos { padding: 1.5rem; }

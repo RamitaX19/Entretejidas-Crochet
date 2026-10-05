@@ -136,6 +136,7 @@ function AdminClientes() {
                                   <p className="nota">
                                     {resumenItems(pedido.items)}
                                     {pedido.descuento > 0 && ` · Cupón ${pedido.cupon}: −$${pedido.descuento.toLocaleString("es-AR")}`}
+                                    {pedido.costoEnvio > 0 && ` · Envío: $${pedido.costoEnvio.toLocaleString("es-AR")}`}
                                   </p>
                                 </li>
                               ))}

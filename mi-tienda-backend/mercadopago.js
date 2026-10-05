@@ -1,4 +1,5 @@
 const { MercadoPagoConfig, Payment } = require("mercadopago");
+const envios = require("./envios");
 
 const API = "https://api.mercadopago.com";
 
@@ -39,7 +40,8 @@ function esDireccionLocal(url) {
 
 async function crearLinkDePago(pedido) {
   // Mercado Pago no acepta ítems con precio negativo: con cupón se cobra el pedido como un solo ítem.
-  const items = pedido.descuento > 0
+  const conCupon = pedido.descuento > 0;
+  const items = conCupon
     ? [{
         id: `pedido-${pedido.id}`,
         title: `Pedido #${pedido.id} de Entretejidas`,
@@ -54,6 +56,17 @@ async function crearLinkDePago(pedido) {
         unit_price: item.precioUnitario,
         currency_id: "ARS",
       }));
+
+  // Sin cupón, el envío va como un ítem más para que la suma dé el total del pedido.
+  if (!conCupon && pedido.costoEnvio > 0) {
+    items.push({
+      id: "envio",
+      title: `Envío por Correo Argentino (${envios.tipoEnvio(pedido.tipoEnvio)?.nombre ?? "a domicilio"})`,
+      quantity: 1,
+      unit_price: pedido.costoEnvio,
+      currency_id: "ARS",
+    });
+  }
 
   const preferencia = {
     items,

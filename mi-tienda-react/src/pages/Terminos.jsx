@@ -38,8 +38,9 @@ function Terminos() {
 
       <h2>6. Envíos y retiro</h2>
       <p>
-        El costo y el plazo del envío se coordinan después de la compra y no están incluidos en el total, salvo que se
-        indique lo contrario. También podés retirar tu pedido en persona, coordinando el día y el lugar.
+        El envío a domicilio es por Correo Argentino: clásico (de 2 a 5 días hábiles) o express (de 1 a 3 días hábiles).
+        El costo depende de la provincia de destino, se muestra antes de confirmar la compra y se suma al total. También
+        podés retirar tu pedido en persona, coordinando el día y el lugar.
       </p>
 
       <h2>7. Productos digitales</h2>

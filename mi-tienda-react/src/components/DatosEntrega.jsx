@@ -1,9 +1,14 @@
+import { nombreTipoEnvio } from "../pedidos";
+
 function DatosEntrega({ pedido }) {
   if (pedido.entrega === "envio") {
+    const tipo = nombreTipoEnvio(pedido.tipoEnvio);
+
     return (
       <p>
-        <strong>Envío a domicilio:</strong> {pedido.direccion}, {pedido.ciudad}, {pedido.provincia} (CP{" "}
-        {pedido.codigoPostal}). Recibe {pedido.destinatario}, tel. {pedido.telefono}.
+        <strong>{tipo ? `Envío ${tipo} por Correo Argentino:` : "Envío a domicilio:"}</strong> {pedido.direccion},{" "}
+        {pedido.ciudad}, {pedido.provincia} (CP {pedido.codigoPostal}). Recibe {pedido.destinatario}, tel.{" "}
+        {pedido.telefono}.
       </p>
     );
   }
