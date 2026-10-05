@@ -174,7 +174,7 @@ a.boton { display: inline-flex; align-items: center; justify-content: center; te
   background: #fff; border: 1px solid var(--linea); border-radius: var(--radio);
   overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr);
 }
-.detalle-imagen { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+.detalle-imagen { width: 100%; aspect-ratio: 1 / 1; object-fit: contain; }
 .detalle-info { padding: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
 .detalle-precio { font-size: 1.75rem; font-weight: 700; }
 .detalle-descripcion { white-space: pre-line; max-width: 65ch; }
@@ -358,7 +358,7 @@ tr.confirmando th, tr.confirmando td { background: #fdecea; }
 .galeria-pista::-webkit-scrollbar { display: none; }
 .galeria-foto {
   flex: 0 0 100%; width: 100%; min-width: 0;
-  aspect-ratio: 1 / 1; object-fit: cover;
+  aspect-ratio: 1 / 1; object-fit: contain;
   scroll-snap-align: start;
 }
 .galeria-flecha {
